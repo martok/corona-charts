@@ -1,0 +1,15 @@
+html {
+    background: #fbfaf9;
+    font-family: Arial, sans-serif;
+}
+body {
+    background: #fff;
+    box-shadow: 0 0 0.5em #999999;
+    margin: 5px auto auto;
+    padding: 5px 1.5em;
+    max-width: 1200px;
+}
+
+img {
+    max-width: 98%;
+}

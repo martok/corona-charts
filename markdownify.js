@@ -16,7 +16,6 @@
             for (const check of globals) {
                 if (typeof window[check] === "undefined") {
                     setTimeout(waitfn, waittime=Math.min(waittime*1.5, 250));
-                    console.log("miss ", check, " ", waittime);
                     return;
                 }
             }
@@ -26,6 +25,7 @@
     }
 
     const head = document.head;
+    head.appendChild(mkElement('link', {rel:'stylesheet', href: './markdownify.css'}));
     head.appendChild(mkElement('link', {rel:'stylesheet', href: 'https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css'}));
     head.appendChild(mkElement('link', {rel:'stylesheet', href: 'https://cdn.jsdelivr.net/npm/markdown-it-texmath/css/texmath.min.css'}));
     head.appendChild(mkElement('link', {rel:'stylesheet', href: 'https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css'}));
