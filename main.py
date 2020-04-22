@@ -165,8 +165,21 @@ class jhudata:
         # active = I - R
 
         df["infected"] = date_shifted_by(df, "confirmed", - V.inf_to_test)
+        if False:
+            df["removed"] = date_shifted_by(df, "confirmed", V.inf_to_recov - V.inf_to_test).fillna(0)
+        else:
+            d = days(9)
+            f = 0.07
+            df["removed"] = date_shifted_by(df, "confirmed", d).fillna(0) * f
+            prevrow = None
+            for index, row in df.iterrows():
+                # y = (df["country"] == row["country"]) & (df["date"] == row["date"] - days(1))
+                # assumption for speed: index is actually sorted
+                if prevrow is not None:
+                    if prevrow["country"] == row["country"] and prevrow["date"] == row["date"] - days(1):
+                        df.loc[index, "removed"] += df.loc[index-1, "removed"]
+                prevrow = row
 
-        df["removed"] = date_shifted_by(df, "confirmed", V.inf_to_recov - V.inf_to_test).fillna(0)
         df["recovered"] = df["removed"] - df["deaths"]
         df.loc[df["recovered"] < 0, "recovered"] = 0
 
@@ -180,10 +193,9 @@ class jhudata:
         # rate of doubling of infections (not active!)
         df["infected_before"] = date_shifted_by(df, "infected", days(alpha_rows))
         df["doubling"] = alpha_to_doubling(measure_alpha(df["infected_before"], df["infected"], alpha_rows))
-        # death rate: of removed cases, how many were fatal
-        df["death_rate"] = df["deaths"] / df["removed"] * 100
-        df.loc[(df["deaths"] < chart_min_deaths) | ~np.isfinite(df["death_rate"]) | (
-                    df["death_rate"] > 100), "death_rate"] = np.nan
+        # case fatality rate: of removed cases, how many were fatal
+        df["CFR"] = df["deaths"] / df["removed"] * 100
+        df.loc[(df["deaths"] < chart_min_deaths) | ~np.isfinite(df["CFR"]) | (df["CFR"] > 100), "CFR"] = np.nan
         cls.data = df
 
     @classmethod
@@ -249,7 +261,7 @@ class jhudata:
             plotpart("perday", f"Change per day, {alpha_rows}-day average:", "Change per day", ylim=(0.5, 2))
             plotpart("Rt", f"$R_t$ calculated from {alpha_rows}-day average", "$R_t$", ylim=(0.5, 4))
             plotpart("doubling", "Days to double", "$T_{double}$ / days", yscale="log")
-            plotpart("death_rate", "Death Rate", "death rate / %", ylim=(0,))
+            plotpart("CFR", "Case fatality rate", "CFR / %", ylim=(0,))
 
     @classmethod
     def fit_mortality(cls):
@@ -270,11 +282,11 @@ class jhudata:
 
         df = cls.data
         # select countries with meaningful data
-        datapts = df[["country", "death_rate"]].groupby("country").count()
-        sel_countries = datapts[datapts["death_rate"] >= period_est].nlargest(20, "death_rate").index
+        datapts = df[["country", "CFR"]].groupby("country").count()
+        sel_countries = datapts[datapts["CFR"] >= period_est].nlargest(20, "CFR").index
         raw = df[df["country"].isin(sel_countries)]
         # for each of those countries, make time series
-        tseries = raw.pivot(index="date", columns="country", values="death_rate")
+        tseries = raw.pivot(index="date", columns="country", values="CFR")
         # attempt to fit a logistic to each
         fitres = pd.DataFrame(index=tseries.columns, columns=["L", "x0", "k", "b"])
         xvalall = (tseries.index - tseries.index.min()).days
@@ -301,10 +313,11 @@ class jhudata:
         axs.legend()
         axs.set_xlabel("Days relative to " + str(tseries.index.min()))
         axs.set_ylabel("Death rate / %")
-        pk.finalize(fig, f"estimated_death_rate.png")
+        pk.finalize(fig, f"estimated_cfr.png")
 
     @classmethod
     def plot_trajectory(cls):
+        # see: https://aatishb.com/covidtrends/
         df = cls.data
         sel_countries = cls.select_plot_countries(df)
         aff = df[df["country"].isin(sel_countries) & (df["confirmed"] > chart_min_pop)]
