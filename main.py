@@ -35,6 +35,7 @@ def days(delta: Union[float, pd.offsets.Tick]):
 class V:
     inf_to_sympt = days(3)
     sympt_to_test = days(5)
+    inf_to_test = inf_to_sympt + sympt_to_test
     inf_to_recov = days(18)
     inf_period = days(3)
 
@@ -157,16 +158,20 @@ class jhudata:
         df = get_jhu_df()
         df = df.groupby(["country", "date"], as_index=False).sum()
 
-        # infected at that date become confirmed later
-        df["infected"] = date_shifted_by(df, "confirmed", -V.inf_to_sympt - V.sympt_to_test)
-        # possible recovery after some days
-        df["maybe_recovered"] = date_shifted_by(df, "confirmed", V.inf_to_recov - V.inf_to_sympt - V.sympt_to_test)
-        df["maybe_recovered"].fillna(0, inplace=True)
-        # actual recovery, if not fatal
-        df["recovered"] = df["maybe_recovered"] - df["deaths"]
+        # interpret data as outcome of a SIR model:
+        #   S - total population
+        #   I - get confirmed a few days later
+        #   R - removed/recovered, maximum I after longest possible time
+        # active = I - R
+
+        df["infected"] = date_shifted_by(df, "confirmed", - V.inf_to_test)
+
+        df["removed"] = date_shifted_by(df, "confirmed", V.inf_to_recov - V.inf_to_test).fillna(0)
+        df["recovered"] = df["removed"] - df["deaths"]
         df.loc[df["recovered"] < 0, "recovered"] = 0
-        # active cases
-        df["active"] = df["infected"] - df["recovered"] - df["deaths"]
+
+        df["active"] = df["infected"] - df["removed"]
+
         # change per day, averaged
         df["active_before"] = date_shifted_by(df, "active", days(alpha_rows))
         df["perday"] = measure_alpha(df["active_before"], df["active"], alpha_rows)
