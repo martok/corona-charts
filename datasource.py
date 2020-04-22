@@ -21,7 +21,7 @@ def download_with_progress(url, filename):
             fp.write(chunk)
 
 
-def update_cache(url, local=None, lifetime=6 * 3600):
+def update_cache(url, local=None, lifetime=3 * 3600):
     if local is None:
         local = os.path.join(os.path.dirname(__file__), os.path.basename(url))
     try:
@@ -58,7 +58,9 @@ def get_history_df() -> DataFrame:
          17  scraper          19783 non-null  object
     """
     f = update_cache("https://funkeinteraktiv.b-cdn.net/history.v4.csv")
-    df: DataFrame = pd.read_csv(f, parse_dates=["date", "updated", "retrieved"])
+    df: DataFrame = pd.read_csv(f, parse_dates=["date"])
+    df["updated"] = pd.to_datetime(df["updated"], unit="ms")
+    df["retrieved"] = pd.to_datetime(df["retrieved"], unit="ms")
     return df
 
 
