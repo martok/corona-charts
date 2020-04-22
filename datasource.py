@@ -58,16 +58,16 @@ def get_history_df() -> DataFrame:
          17  scraper          19783 non-null  object
     """
     f = update_cache('https://funkeinteraktiv.b-cdn.net/history.v4.csv')
-    df: DataFrame = pd.read_csv(f, parse_dates=["date", "updated", "retrieved"])
+    df: DataFrame = pd.read_csv(f, parse_dates=['date', 'updated', 'retrieved'])
     return df
 
 
 def reformat_jhu(df: DataFrame, dataname: str) -> DataFrame:
     metacols = df.columns[:4]
     datecols = df.columns[5:]
-    unpivot = df.melt(id_vars=metacols, value_vars=datecols, value_name=dataname, var_name="date"). \
+    unpivot = df.melt(id_vars=metacols, value_vars=datecols, value_name=dataname, var_name='date'). \
         rename(columns={'Province/State': 'state', 'Country/Region': 'country'})
-    unpivot["date"] = pd.to_datetime(unpivot["date"])
+    unpivot['date'] = pd.to_datetime(unpivot['date'])
     return unpivot
 
 
@@ -82,12 +82,12 @@ def get_jhu_df() -> DataFrame:
          4   date            18576 non-null  datetime64[ns]
          5   confirmed       18576 non-null  int64
     """
-    where = "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/"
-    csv_c = update_cache(where + "time_series_covid19_confirmed_global.csv")
-    csv_d = update_cache(where + "time_series_covid19_deaths_global.csv")
+    where = 'https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/'
+    csv_c = update_cache(where + 'time_series_covid19_confirmed_global.csv')
+    csv_d = update_cache(where + 'time_series_covid19_deaths_global.csv')
     df_c = pd.read_csv(csv_c)
-    df_c = reformat_jhu(df_c, "confirmed")
+    df_c = reformat_jhu(df_c, 'confirmed')
     df_d = pd.read_csv(csv_d)
-    df_d = reformat_jhu(df_d, "deaths")
+    df_d = reformat_jhu(df_d, 'deaths')
     df = pd.merge(df_c, df_d)
     return df

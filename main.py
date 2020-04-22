@@ -74,45 +74,45 @@ class mopodata:
 
         def track_a_region(label, columns=None):
             if columns is None:
-                columns = ["confirmed", "recovered", "deaths"]
-            reg = df[df["label"] == label].set_index("date")
+                columns = ['confirmed', 'recovered', 'deaths']
+            reg = df[df['label'] == label].set_index('date')
             reg = reg[columns]
 
             def mapper(row):
                 try:
-                    return measure_alpha(reg.loc[row.name - np.timedelta64(3, "D"), "confirmed"], row["confirmed"], 3)
+                    return measure_alpha(reg.loc[row.name - np.timedelta64(3, 'D'), 'confirmed'], row['confirmed'], 3)
                 except:
                     return np.nan
 
-            reg["change"] = reg.apply(mapper, axis=1)
-            reg["doubling"] = alpha_to_doubling(reg["change"])
-            reg["dow"] = reg.index.day_name()
+            reg['change'] = reg.apply(mapper, axis=1)
+            reg['doubling'] = alpha_to_doubling(reg['change'])
+            reg['dow'] = reg.index.day_name()
             return reg
 
         def pivoted(unit, datacol, worst_only=None):
-            piv = df[df["label_parent"] == unit].pivot(index="date", columns="label", values=datacol)
+            piv = df[df['label_parent'] == unit].pivot(index='date', columns='label', values=datacol)
             if worst_only is not None:
-                worst = piv.tail(1).melt().nlargest(worst_only, columns="value")
-                piv = piv[worst["label"].sort_values()]
+                worst = piv.tail(1).melt().nlargest(worst_only, columns='value')
+                piv = piv[worst['label'].sort_values()]
             return piv
 
-        lsa = track_a_region("Sachsen-Anhalt")
-        print(lsa, file=open("report.lsa.txt", "wt"))
+        lsa = track_a_region('Sachsen-Anhalt')
+        print(lsa, file=open('report.lsa.txt', 'wt'))
 
-        jena = track_a_region("Jena")
-        print(jena, file=open("report.jena.txt", "wt"))
-
-        fig, axs = pk.new_regular()
-        pivoted("Sachsen-Anhalt", "confirmed", 10).plot(ax=axs)
-        axs.set_ylabel("confirmed")
-        pk.autogrid(axs)
-        pk.finalize(fig, "lsa_confirmed.png")
+        jena = track_a_region('Jena')
+        print(jena, file=open('report.jena.txt', 'wt'))
 
         fig, axs = pk.new_regular()
-        pivoted("Thüringen", "confirmed", 10).plot(ax=axs)
-        axs.set_ylabel("confirmed")
+        pivoted('Sachsen-Anhalt', 'confirmed', 10).plot(ax=axs)
+        axs.set_ylabel('confirmed')
         pk.autogrid(axs)
-        pk.finalize(fig, "th_confirmed.png")
+        pk.finalize(fig, 'lsa_confirmed.png')
+
+        fig, axs = pk.new_regular()
+        pivoted('Thüringen', 'confirmed', 10).plot(ax=axs)
+        axs.set_ylabel('confirmed')
+        pk.autogrid(axs)
+        pk.finalize(fig, 'th_confirmed.png')
 
 
 def date_shifted_by(df: pd.DataFrame, column, by):
@@ -120,11 +120,11 @@ def date_shifted_by(df: pd.DataFrame, column, by):
     jk: pd.Index = df.columns.intersection(['label', 'country', 'date'])
     src = df[jk].copy()
     src[column] = df[column]
-    dst = src.rename(columns={column: "__newcol"})
-    dst["date"] = dst["date"] + by
+    dst = src.rename(columns={column: '__newcol'})
+    dst['date'] = dst['date'] + by
     aligned = pd.merge(src, dst, how='left')
     aligned.index = src.index
-    return aligned["__newcol"]
+    return aligned['__newcol']
 
 
 class jhudata:
@@ -136,21 +136,21 @@ class jhudata:
         df = df.groupby(['country', 'date'], as_index=False).sum()
 
         # infected at that date become confirmed later
-        df["infected"] = date_shifted_by(df, "confirmed", -V.inf_to_sympt - V.sympt_to_test)
+        df['infected'] = date_shifted_by(df, 'confirmed', -V.inf_to_sympt - V.sympt_to_test)
         # possible recovery after some days
-        df["maybe_recovered"] = date_shifted_by(df, "confirmed", V.inf_to_recov - V.inf_to_sympt - V.sympt_to_test)
-        df["maybe_recovered"].fillna(0, inplace=True)
+        df['maybe_recovered'] = date_shifted_by(df, 'confirmed', V.inf_to_recov - V.inf_to_sympt - V.sympt_to_test)
+        df['maybe_recovered'].fillna(0, inplace=True)
         # actual recovery, if not fatal
-        df["recovered"] = df["maybe_recovered"] - df["deaths"]
-        df.loc[df["recovered"] < 0, "recovered"] = 0
+        df['recovered'] = df['maybe_recovered'] - df['deaths']
+        df.loc[df['recovered'] < 0, 'recovered'] = 0
         # active cases
-        df["existing"] = df["infected"] - df["recovered"] - df["deaths"]
+        df['existing'] = df['infected'] - df['recovered'] - df['deaths']
 
         # change per day, averaged
-        df["existing_before"] = date_shifted_by(df, "existing", days(alpha_rows))
-        df["perday"] = measure_alpha(df["existing_before"], df["existing"], alpha_rows)
-        df.loc[df["existing"] < chart_min_pop, "perday"] = np.nan,
-        df["Rt"] = alpha_to_Rt(df["perday"])
+        df['existing_before'] = date_shifted_by(df, 'existing', days(alpha_rows))
+        df['perday'] = measure_alpha(df['existing_before'], df['existing'], alpha_rows)
+        df.loc[df['existing'] < chart_min_pop, 'perday'] = np.nan,
+        df['Rt'] = alpha_to_Rt(df['perday'])
         cls.data = df
 
     @classmethod
@@ -161,7 +161,7 @@ class jhudata:
             cols = ['confirmed', 'deaths', 'infected', 'recovered', 'existing']
             fig, axs = pk.new_wide()
             axs.set_ylim(100, 100000)
-            ge = df[df["country"] == country]
+            ge = df[df['country'] == country]
             ge.plot(x='date', y=cols, ax=axs)
             maxval = np.nanmax(ge[['confirmed', 'deaths', 'infected', 'recovered', 'existing']].values)
             axs.set_ylim(chart_min_pop, math.ceil(maxval / 1e5) * 1e5)
@@ -169,52 +169,55 @@ class jhudata:
             pk.autogrid(axs)
             pk.finalize(fig, f'overview_{country}.png')
 
-        overview_country("Germany")
-        overview_country("China")
-        overview_country("US")
-        overview_country("Italy")
+        overview_country('Germany')
+        overview_country('China')
+        overview_country('US')
+        overview_country('Italy')
+        overview_country('France')
+        overview_country('United Kingdom')
+        overview_country('Sweden')
 
     @classmethod
     def plot_affected(cls):
         df = cls.data
-        report = open("report.world.txt", "wt")
+        report = open('report.world.txt', 'wt')
         if chart_show_countries is None:
-            sel_countries = df[["country", "existing"]].groupby("country").max().nlargest(
-                chart_show_most_affected, "existing").index
+            sel_countries = df[['country', 'existing']].groupby('country').max().nlargest(
+                chart_show_most_affected, 'existing').index
         else:
             sel_countries = chart_show_countries
-        aff = df[df["country"].isin(sel_countries)]
-        exp = aff.pivot(index="date", columns="country", values="existing")
-        print("Existing Cases:", file=report)
+        aff = df[df['country'].isin(sel_countries)]
+        exp = aff.pivot(index='date', columns='country', values='existing')
+        print('Existing Cases:', file=report)
         print(exp[~exp.isnull().any(axis=1)].tail(alpha_rows), file=report)
-        print("\n", file=report)
+        print('\n', file=report)
         fig, axs = pk.new_wide()
         exp.plot(ax=axs)
         axs.set_yscale('log')
         axs.set_ylim(chart_min_pop, math.ceil(np.nanmax(exp.values) / 1e5) * 1e5)
-        axs.set_ylabel("Infected")
+        axs.set_ylabel('Infected')
         pk.autogrid(axs)
         pk.finalize(fig, 'countries_existing.png')
 
-        rt = aff.pivot(index="date", columns="country", values="perday")
-        print(f"Change per day, {alpha_rows}-day average:", file=report)
+        rt = aff.pivot(index='date', columns='country', values='perday')
+        print(f'Change per day, {alpha_rows}-day average:', file=report)
         print(rt[~rt.isnull().any(axis=1)].tail(alpha_rows), file=report)
-        print("\n", file=report)
+        print('\n', file=report)
         fig, axs = pk.new_wide()
         rt.plot(ax=axs)
         axs.set_ylim(0.5, 2)
-        axs.set_ylabel("Change per day")
+        axs.set_ylabel('Change per day')
         pk.autogrid(axs)
         pk.finalize(fig, 'countries_perday.png')
 
-        rt = aff.pivot(index="date", columns="country", values="Rt")
-        print(f"Rt calculated from {alpha_rows}-day average:", file=report)
+        rt = aff.pivot(index='date', columns='country', values='Rt')
+        print(f'Rt calculated from {alpha_rows}-day average:', file=report)
         print(rt[~rt.isnull().any(axis=1)].tail(alpha_rows), file=report)
-        print("\n", file=report)
+        print('\n', file=report)
         fig, axs = pk.new_wide()
         rt.plot(ax=axs)
         axs.set_ylim(0.5, 5)
-        axs.set_ylabel("Rt")
+        axs.set_ylabel('Rt')
         pk.autogrid(axs)
         pk.finalize(fig, 'countries_Rt.png')
 
