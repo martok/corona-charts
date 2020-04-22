@@ -84,12 +84,14 @@ def get_jhu_df() -> DataFrame:
          4   date            18576 non-null  datetime64[ns]
          5   confirmed       18576 non-null  int64
     """
+    def make(fname, col):
+        csv = update_cache(where + fname)
+        df = pd.read_csv(csv)
+        return reformat_jhu(df, col)
+
     where = "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/"
-    csv_c = update_cache(where + "time_series_covid19_confirmed_global.csv")
-    csv_d = update_cache(where + "time_series_covid19_deaths_global.csv")
-    df_c = pd.read_csv(csv_c)
-    df_c = reformat_jhu(df_c, "confirmed")
-    df_d = pd.read_csv(csv_d)
-    df_d = reformat_jhu(df_d, "deaths")
-    df = pd.merge(df_c, df_d)
+    df_c = make("time_series_covid19_confirmed_global.csv", "confirmed")
+    df_d = make("time_series_covid19_deaths_global.csv", "deaths")
+    df_r = make("time_series_covid19_recovered_global.csv", "recovered")
+    df = df_c.merge(df_d).merge(df_r)
     return df
