@@ -1,6 +1,7 @@
 import sys
 import os
-sys.path.append(os.path.dirname(__file__)+'/..')
+
+sys.path.append(os.path.dirname(__file__) + '/..')
 
 import filecmp
 import glob
@@ -19,6 +20,7 @@ from corona.datasource import get_history_df, get_jhu_df
 pd.set_option("display.max_rows", 500)
 pd.set_option("display.max_columns", 500)
 pd.set_option("display.width", 200)
+
 
 # some shared funcs and data
 
@@ -43,6 +45,7 @@ chart_show_most_affected = 10
 chart_show_countries = ["Germany", "Italy", "France", "Spain", "United Kingdom", "US", "Korea, South", "China"]
 # chart_show_countries = None
 chart_min_pop = 100
+chart_min_deaths = 10
 
 
 def measure_alpha(day1, day2, span):
@@ -66,7 +69,7 @@ def roundnext(v):
         f = 10 ** e
         if m > 0.5 * f:
             return math.ceil(m / f) * f
-    return 10**3
+    return 10 ** 3
 
 
 def join_on(df1: pd.DataFrame, df2: pd.DataFrame, keys: Sequence, **kwargs) -> pd.DataFrame:
@@ -122,7 +125,8 @@ class mopodata:
             pv = pivoted(land, "confirmed", 10)
             pv.plot(ax=axs)
             axs.set_ylabel("confirmed")
-            axs.annotate("Last data update: "+str(pv.last_modified), xy=(1, 0), xycoords="figure fraction", ha="right", va="bottom")
+            axs.annotate("Last data update: " + str(pv.last_modified), xy=(1, 0), xycoords="figure fraction",
+                         ha="right", va="bottom")
             pk.set_grid(axs)
             pk.finalize(fig, f"local_confirmed_{short}.png")
 
@@ -173,6 +177,7 @@ class jhudata:
         df["doubling"] = alpha_to_doubling(measure_alpha(df["infected_before"], df["infected"], alpha_rows))
         # mortality
         df["mortality"] = df["deaths"] / df["infected"] * 100
+        df.loc[df["deaths"] < chart_min_deaths, "mortality"] = np.nan
         cls.data = df
 
     @classmethod
@@ -185,7 +190,8 @@ class jhudata:
             axs.set_ylim(100, 100000)
             ge = df[df["country"] == country]
             ge.plot(x="date", y=cols, ax=axs)
-            axs.set_ylim(chart_min_pop, roundnext(ge[["confirmed", "deaths", "infected", "recovered", "active"]].values))
+            axs.set_ylim(chart_min_pop,
+                         roundnext(ge[["confirmed", "deaths", "infected", "recovered", "active"]].values))
             axs.set_title(country)
             pk.set_grid(axs)
             pk.finalize(fig, f"overview_{country}.png")
@@ -209,7 +215,8 @@ class jhudata:
         aff = df[df["country"].isin(sel_countries)]
 
         with open("report.world.txt", "wt") as report:
-            def plotpart(column: str, title: str, ylabel: str, *, yscale: Optional[str] = None, ylim:Union[None, Callable, Tuple] = None):
+            def plotpart(column: str, title: str, ylabel: str, *, yscale: Optional[str] = None,
+                         ylim: Union[None, Callable, Tuple] = None):
                 rt = aff.pivot(index="date", columns="country", values=column)
                 print(title + ":", file=report)
                 print(rt[~rt.isnull().all(axis=1)].tail(alpha_rows), file=report)
@@ -227,13 +234,63 @@ class jhudata:
                 pk.set_grid(axs)
                 pk.finalize(fig, f"countries_{column}.png")
 
-            plotpart("active", "Active cases", "active", yscale="log",  ylim=lambda v: (chart_min_pop, roundnext(v)))
+            plotpart("active", "Active cases", "active", yscale="log", ylim=lambda v: (chart_min_pop, roundnext(v)))
             plotpart("perday", f"Change per day, {alpha_rows}-day average:", "Change per day", ylim=(0.5, 2))
             plotpart("Rt", f"$R_t$ calculated from {alpha_rows}-day average", "$R_t$", ylim=(0.5, 4))
             plotpart("doubling", "Days to double", "$T_{double}$ / days", yscale="log")
             plotpart("mortality", "Mortality", "mortality / %", ylim=(0,))
 
+    @classmethod
+    def fit_mortality(cls):
+        period_est = 20
 
+        def logistic(x, L, x0, k, b):
+            y = L / (1 + np.exp(-k * (x - x0))) + b
+            return (y)
+
+        def fit_logistic(xdata, ydata):
+            from scipy.optimize import curve_fit
+            p0 = [max(ydata), np.median(xdata), 1, min(ydata)]  # this is an mandatory initial guess
+            pad = np.arange(-10, 0, 1)
+            xdata = np.hstack((pad, xdata))
+            ydata = np.hstack((np.zeros(len(pad)), ydata))
+            popt, pcov = curve_fit(logistic, xdata, ydata, p0, method='trf', maxfev=100)
+            return popt
+
+        df = cls.data
+        # select countries with meaningful data
+        datapts = df[["country", "mortality"]].groupby("country").count()
+        sel_countries = datapts[datapts["mortality"] >= period_est].index
+        raw = df[df["country"].isin(sel_countries)]
+        # for each of those countries, make time series
+        tseries = raw.pivot(index="date", columns="country", values="mortality")
+        # attempt to fit a logistic to each
+        fitres = pd.DataFrame(index=tseries.columns, columns=["L", "x0", "k", "b"])
+        xvalall = (tseries.index - tseries.index.min()).days
+        for col in tseries.columns:
+            rows = ~tseries[col].isnull()
+            xval = xvalall[rows]
+            yval = tseries.loc[rows, col].to_numpy()
+            try:
+                fitres.loc[col] = fit_logistic(xval, yval)
+            except RuntimeError:
+                pass
+        # plots for test
+        fig, axs = pk.new_wide()
+        for country in fitres.sort_values(by="L", ascending=False).index.to_list():
+            sc = axs.scatter(xvalall, tseries[country].to_numpy(), label=country, marker="x")
+            sccolor = sc.get_facecolor()[0]
+            fitted = fitres.loc[country]
+            if not any(fitted.isnull()):
+                sc.set_label("_")
+                yval = logistic(xvalall, *fitted.to_list())
+                term = fitted["L"]
+                axs.plot(xvalall, yval, c=sccolor, label=f"{country}: $m \\rightarrow {term:.1f}$")
+        pk.set_grid(axs)
+        axs.legend()
+        axs.set_xlabel("Days relative to " + str(tseries.index.min()))
+        axs.set_ylabel("Mortality / %")
+        pk.finalize(fig, f"estimated_mortality.png")
 
 
 def publish():
@@ -256,6 +313,8 @@ tasks = [
     mopodata.load,
     mopodata.run,
     jhudata.load,
+    jhudata.fit_mortality,
+    jhudata.plot_percountry,
     jhudata.plot_percountry,
     jhudata.plot_affected,
     publish,
