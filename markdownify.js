@@ -22,36 +22,26 @@
             if (new Date().getTime() > later) {
                 return;
             }
-            for (const check of globals) {
-                if (typeof window[check] === "undefined") {
-                    setTimeout(waitfn, waittime = Math.min(waittime * 1.5, 250));
-                    return;
-                }
+            const currvals = globals.map(g => window[g]);
+            if (currvals.some(g => typeof g === "undefined")) {
+                setTimeout(waitfn, waittime = Math.min(waittime * 1.5, 250));
+                return;
             }
-            fn();
+            fn(...currvals);
         }
         setTimeout(waitfn, waittime);
     }
 
     const head = document.head;
     head.appendChild(mkElement('link', {rel: 'stylesheet', href: './markdownify.css'}));
-    head.appendChild(mkElement('link', {
-        rel: 'stylesheet',
-        href: 'https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css'
-    }));
-    head.appendChild(mkElement('link', {
-        rel: 'stylesheet',
-        href: 'https://cdn.jsdelivr.net/npm/markdown-it-texmath/css/texmath.min.css'
-    }));
-    head.appendChild(mkElement('link', {
-        rel: 'stylesheet',
-        href: 'https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css'
-    }));
+    head.appendChild(mkElement('link', {rel: 'stylesheet', href: 'https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css'}));
+    head.appendChild(mkElement('link', {rel: 'stylesheet', href: 'https://cdn.jsdelivr.net/npm/markdown-it-texmath/css/texmath.min.css'}));
+    head.appendChild(mkElement('link', {rel: 'stylesheet', href: 'https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css'}));
     head.appendChild(mkElement('script', {src: 'https://cdn.jsdelivr.net/npm/markdown-it/dist/markdown-it.min.js'}));
     head.appendChild(mkElement('script', {src: 'https://cdn.jsdelivr.net/npm/katex/dist/katex.min.js'}));
     head.appendChild(mkElement('script', {src: 'https://cdn.jsdelivr.net/npm/markdown-it-texmath/texmath.min.js'}));
 
-    waitForGlobals(["markdownit", "texmath", "katex"], () => {
+    waitForGlobals(["markdownit", "texmath", "katex"], (markdownit, texmath, katex) => {
         const tm = texmath.use(katex);
         const md = markdownit().use(tm, {
             engine: katex,
@@ -68,7 +58,7 @@
             document.title = h1[0].innerText;
         }
         // create TOC
-        const headings = [...document.querySelectorAll('h1,h2,h3')];
+        const headings = [...document.querySelectorAll('h1,h2,h3,h4,h5,h6,h7,h8,h9')];
         if (headings.length) {
             const ullv1 = mkElement('ul')
             const toc = mkElement('div', {id: 'toc'}, [
@@ -80,6 +70,10 @@
             let level = 'h1';
             for (const heading of headings) {
                 const lv = heading.tagName.toLowerCase();
+                const slug = heading.innerText.toLowerCase().replace(/\W/g, '_');
+                heading.setAttribute('id', slug);
+                if (lv > 'h3')
+                    continue;
                 if (lv > level) {
                     const newcont = mkElement('ul');
                     container.lastChild.appendChild(newcont);
@@ -89,8 +83,6 @@
                     container = container.parentElement.parentElement;
                     level = lv;
                 }
-                const slug = heading.innerText.toLowerCase().replace(/\W/g, '_');
-                heading.setAttribute('id', slug);
                 container.appendChild(mkElement('li', {}, [
                     mkElement('a', {href: '#' + slug}, heading.innerText)
                 ]));
