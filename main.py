@@ -126,8 +126,8 @@ class mopodata:
             pv = pivoted(land, "confirmed", 10)
             pv.plot(ax=axs)
             axs.set_ylabel("confirmed")
-            axs.annotate("Last data update: " + str(pv.last_modified), xy=(1, 0), xycoords="figure fraction",
-                         ha="right", va="bottom")
+            axs.annotate("Last data update: " + str(pv.last_modified), xy=(0.5, 0), xycoords="figure fraction",
+                         ha="center", va="bottom")
             pk.set_grid(axs)
             pk.finalize(fig, f"local_confirmed_{short}.png")
 
@@ -182,7 +182,8 @@ class jhudata:
         df["doubling"] = alpha_to_doubling(measure_alpha(df["infected_before"], df["infected"], alpha_rows))
         # death rate: of removed cases, how many were fatal
         df["death_rate"] = df["deaths"] / df["removed"] * 100
-        df.loc[(df["deaths"] < chart_min_deaths) | ~np.isfinite(df["death_rate"]) | (df["death_rate"] > 100), "death_rate"] = np.nan
+        df.loc[(df["deaths"] < chart_min_deaths) | ~np.isfinite(df["death_rate"]) | (
+                    df["death_rate"] > 100), "death_rate"] = np.nan
         cls.data = df
 
     @classmethod
@@ -209,14 +210,19 @@ class jhudata:
         overview_country("United Kingdom")
         overview_country("Sweden")
 
-    @classmethod
-    def plot_affected(cls):
-        df = cls.data
+    @staticmethod
+    def select_plot_countries(df: pd.DataFrame):
         if chart_show_countries is None:
             sel_countries = df[["country", "active"]].groupby("country").max().nlargest(
                 chart_show_most_affected, "active").index
         else:
             sel_countries = chart_show_countries
+        return sel_countries
+
+    @classmethod
+    def plot_affected(cls):
+        df = cls.data
+        sel_countries = cls.select_plot_countries(df)
         aff = df[df["country"].isin(sel_countries)]
 
         with open("report.world.txt", "wt") as report:
@@ -284,7 +290,7 @@ class jhudata:
         fig, axs = pk.new_wide()
         for country in fitres.sort_values(by="L", ascending=False).index.to_list():
             sc = axs.scatter(xvalall, tseries[country].to_numpy(), label=country, marker="x")
-            sccolor = sc.get_facecolor()[0]
+            sccolor = pk.get_last_facecolor(axs)
             fitted = fitres.loc[country]
             if not any(fitted.isnull()):
                 sc.set_label("_")
@@ -296,6 +302,29 @@ class jhudata:
         axs.set_xlabel("Days relative to " + str(tseries.index.min()))
         axs.set_ylabel("Death rate / %")
         pk.finalize(fig, f"estimated_death_rate.png")
+
+    @classmethod
+    def plot_trajectory(cls):
+        df = cls.data
+        sel_countries = cls.select_plot_countries(df)
+        aff = df[df["country"].isin(sel_countries) & (df["confirmed"] > chart_min_pop)]
+        traj = aff[["country", "date", "confirmed"]].copy()
+        traj["increase"] = aff["confirmed"] - date_shifted_by(aff, "confirmed", days(7)).fillna(0)
+        fig, axs = pk.new_regular()
+        for c in sel_countries:
+            cdata = traj[traj["country"] == c]
+            xydata = cdata[["confirmed", "increase"]].sort_values(by="confirmed").to_numpy()
+            axs.plot(*xydata.T, label=c)
+            axs.scatter(*xydata[-1].T, label="_", c=pk.get_last_facecolor(axs))
+        axs.set_xscale("log")
+        axs.set_yscale("log")
+        pk.set_grid(axs)
+        axs.legend()
+        axs.set_xlabel("Total confirmed cases")
+        axs.set_ylabel("New confirmed cases / 7 day period")
+        axs.annotate("Last data: " + str(traj["date"].max()), xy=(0.5, 0), xycoords="figure fraction",
+                     ha="center", va="bottom")
+        pk.finalize(fig, f"trajectory.png")
 
 
 def publish():
@@ -320,8 +349,8 @@ tasks = [
     jhudata.load,
     # jhudata.fit_mortality,
     jhudata.plot_percountry,
-    jhudata.plot_percountry,
     jhudata.plot_affected,
+    jhudata.plot_trajectory,
     publish,
 ]
 
