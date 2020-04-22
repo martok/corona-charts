@@ -155,8 +155,9 @@ class jhudata:
 
     @classmethod
     def load(cls):
+        df: pd.DataFrame
         df = get_jhu_df()
-        df = df.groupby(["country", "date"], as_index=False).sum()
+        df = df.groupby(["country", "date"], as_index=False).sum().drop(["Lat", "Long"], axis=1)
 
         # interpret data as outcome of a SIR model:
         #   S - total population
@@ -165,19 +166,20 @@ class jhudata:
         # active = I - R
 
         df["infected"] = date_shifted_by(df, "confirmed", - V.inf_to_test)
-        if False:
+        if True:
             df["removed"] = date_shifted_by(df, "confirmed", V.inf_to_recov - V.inf_to_test).fillna(0)
         else:
             d = days(9)
             f = 0.07
-            df["removed"] = date_shifted_by(df, "confirmed", d).fillna(0) * f
+            df["removed"] = date_shifted_by(df, "confirmed", d).fillna(0)
+            icol = df.columns.get_loc("removed")
             prevrow = None
-            for index, row in df.iterrows():
+            for irow, row in enumerate(df.itertuples()):
                 # y = (df["country"] == row["country"]) & (df["date"] == row["date"] - days(1))
                 # assumption for speed: index is actually sorted
                 if prevrow is not None:
-                    if prevrow["country"] == row["country"] and prevrow["date"] == row["date"] - days(1):
-                        df.loc[index, "removed"] += df.loc[index-1, "removed"]
+                    if prevrow.country == row.country and prevrow.date == row.date - days(1):
+                        df.iat[irow, icol] = df.iat[irow - 1, icol] + round(df.iat[irow, icol] - df.iat[irow - 1, icol]) * f
                 prevrow = row
 
         df["recovered"] = df["removed"] - df["deaths"]
