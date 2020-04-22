@@ -313,7 +313,7 @@ tasks = [
     mopodata.load,
     mopodata.run,
     jhudata.load,
-    jhudata.fit_mortality,
+    # jhudata.fit_mortality,
     jhudata.plot_percountry,
     jhudata.plot_percountry,
     jhudata.plot_affected,
