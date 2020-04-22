@@ -7,7 +7,7 @@ import glob
 import math
 import shutil
 from time import sleep
-from typing import Union, Sequence
+from typing import Union, Sequence, Callable, Tuple, Optional
 
 import numpy as np
 import pandas as pd
@@ -51,11 +51,22 @@ def measure_alpha(day1, day2, span):
 
 
 def alpha_to_doubling(alpha):
-    return np.log(2) / np.log(alpha)
+    v = np.log(2) / np.log(alpha)
+    v[alpha < 1] = np.nan
+    return v
 
 
 def alpha_to_Rt(alpha):
     return 1 + (alpha - 1) * days(V.inf_period)
+
+
+def roundnext(v):
+    m = np.nanmax(v)
+    for e in reversed(range(3, 6)):
+        f = 10 ** e
+        if m > 0.5 * f:
+            return math.ceil(m / f) * f
+    return 10**3
 
 
 def join_on(df1: pd.DataFrame, df2: pd.DataFrame, keys: Sequence, **kwargs) -> pd.DataFrame:
@@ -87,8 +98,8 @@ class mopodata:
                 except:
                     return np.nan
 
-            reg["change"] = reg.apply(mapper, axis=1)
-            reg["doubling"] = alpha_to_doubling(reg["change"])
+            reg["perday"] = reg.apply(mapper, axis=1)
+            reg["doubling"] = alpha_to_doubling(reg["perday"])
             reg["dow"] = reg.index.day_name()
             reg.last_modified = roi["updated"].max()
             return reg
@@ -113,7 +124,7 @@ class mopodata:
             axs.set_ylabel("confirmed")
             axs.annotate("Last data update: "+str(pv.last_modified), xy=(1, 0), xycoords="figure fraction", ha="right", va="bottom")
             pk.set_grid(axs)
-            pk.finalize(fig, f"{short}_confirmed.png")
+            pk.finalize(fig, f"local_confirmed_{short}.png")
 
         land_report("Sachsen-Anhalt", "lsa")
         land_report("Jena", "jena")
@@ -152,12 +163,14 @@ class jhudata:
         df.loc[df["recovered"] < 0, "recovered"] = 0
         # active cases
         df["active"] = df["infected"] - df["recovered"] - df["deaths"]
-
         # change per day, averaged
         df["active_before"] = date_shifted_by(df, "active", days(alpha_rows))
         df["perday"] = measure_alpha(df["active_before"], df["active"], alpha_rows)
-        df.loc[df["active"] < chart_min_pop, "perday"] = np.nan,
+        df.loc[df["active"] < chart_min_pop, "perday"] = np.nan
+        df["doubling"] = alpha_to_doubling(df["perday"])
         df["Rt"] = alpha_to_Rt(df["perday"])
+        # mortality
+        df["mortality"] = df["deaths"] / df["infected"] * 100
         cls.data = df
 
     @classmethod
@@ -170,8 +183,7 @@ class jhudata:
             axs.set_ylim(100, 100000)
             ge = df[df["country"] == country]
             ge.plot(x="date", y=cols, ax=axs)
-            maxval = np.nanmax(ge[["confirmed", "deaths", "infected", "recovered", "active"]].values)
-            axs.set_ylim(chart_min_pop, math.ceil(maxval / 1e5) * 1e5)
+            axs.set_ylim(chart_min_pop, roundnext(ge[["confirmed", "deaths", "infected", "recovered", "active"]].values))
             axs.set_title(country)
             pk.set_grid(axs)
             pk.finalize(fig, f"overview_{country}.png")
@@ -187,46 +199,39 @@ class jhudata:
     @classmethod
     def plot_affected(cls):
         df = cls.data
-        report = open("report.world.txt", "wt")
         if chart_show_countries is None:
             sel_countries = df[["country", "active"]].groupby("country").max().nlargest(
                 chart_show_most_affected, "active").index
         else:
             sel_countries = chart_show_countries
         aff = df[df["country"].isin(sel_countries)]
-        exp = aff.pivot(index="date", columns="country", values="active")
-        print("active Cases:", file=report)
-        print(exp[~exp.isnull().any(axis=1)].tail(alpha_rows), file=report)
-        print("\n", file=report)
-        fig, axs = pk.new_wide()
-        exp.plot(ax=axs)
-        axs.set_yscale("log")
-        axs.set_ylim(chart_min_pop, math.ceil(np.nanmax(exp.values) / 1e5) * 1e5)
-        axs.set_ylabel("Infected")
-        pk.set_grid(axs)
-        pk.finalize(fig, "countries_existing.png")
 
-        rt = aff.pivot(index="date", columns="country", values="perday")
-        print(f"Change per day, {alpha_rows}-day average:", file=report)
-        print(rt[~rt.isnull().any(axis=1)].tail(alpha_rows), file=report)
-        print("\n", file=report)
-        fig, axs = pk.new_wide()
-        rt.plot(ax=axs)
-        axs.set_ylim(0.5, 2)
-        axs.set_ylabel("Change per day")
-        pk.set_grid(axs)
-        pk.finalize(fig, "countries_perday.png")
+        with open("report.world.txt", "wt") as report:
+            def plotpart(column: str, title: str, ylabel: str, *, yscale: Optional[str] = None, ylim:Union[None, Callable, Tuple] = None):
+                rt = aff.pivot(index="date", columns="country", values=column)
+                print(title + ":", file=report)
+                print(rt[~rt.isnull().all(axis=1)].tail(alpha_rows), file=report)
+                print("\n", file=report)
+                fig, axs = pk.new_wide()
+                rt.plot(ax=axs)
+                axs.set_title(title)
+                axs.set_ylabel(ylabel)
+                if yscale is not None:
+                    axs.set_yscale(yscale)
+                if ylim is not None:
+                    if callable(ylim):
+                        ylim = ylim(rt.values)
+                    axs.set_ylim(*ylim)
+                pk.set_grid(axs)
+                pk.finalize(fig, f"countries_{column}.png")
 
-        rt = aff.pivot(index="date", columns="country", values="Rt")
-        print(f"Rt calculated from {alpha_rows}-day average:", file=report)
-        print(rt[~rt.isnull().any(axis=1)].tail(alpha_rows), file=report)
-        print("\n", file=report)
-        fig, axs = pk.new_wide()
-        rt.plot(ax=axs)
-        axs.set_ylim(0.5, 5)
-        axs.set_ylabel("Rt")
-        pk.set_grid(axs)
-        pk.finalize(fig, "countries_Rt.png")
+            plotpart("active", "Active cases", "active", yscale="log",  ylim=lambda v: (chart_min_pop, roundnext(v)))
+            plotpart("perday", f"Change per day, {alpha_rows}-day average:", "Change per day", ylim=(0.5, 2))
+            plotpart("Rt", f"Rt calculated from {alpha_rows}-day average", "Rt", ylim=(0.5, 4))
+            plotpart("doubling", "Days to double", "$T_{double}$ / days", yscale="log")
+            plotpart("mortality", "Mortality", "mortality / %", ylim=(0,))
+
+
 
 
 def publish():
