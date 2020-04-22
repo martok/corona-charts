@@ -24,7 +24,7 @@ pd.set_option("display.width", 200)
 
 # some shared funcs and data
 
-def days(delta: Union[float, pd.offsets.Tick]):
+def days(delta: Union[float, pd.offsets.Tick]) -> Union[pd.offsets.Day, int]:
     if isinstance(delta, pd.offsets.Day):
         return delta.delta.days
     if isinstance(delta, pd.offsets.Tick):
@@ -33,8 +33,8 @@ def days(delta: Union[float, pd.offsets.Tick]):
 
 
 class V:
-    inf_to_sympt = days(3)
-    sympt_to_test = days(5)
+    inf_to_sympt = days(4)
+    sympt_to_test = days(3)
     inf_to_test = inf_to_sympt + sympt_to_test
     inf_to_recov = days(18)
     inf_period = days(3)
@@ -60,8 +60,23 @@ def alpha_to_doubling(alpha):
     return v
 
 
-def alpha_to_Rt(alpha):
+def alpha_to_Rt_simple(alpha):
     return 1 + (alpha - 1) * days(V.inf_period)
+
+
+def alpha_to_Rt(alpha):
+    # Wearing et al., referenced in https://wwwnc.cdc.gov/eid/article/26/7/20-0282_article Appendix 2
+    #
+    m = 4.5  # shape parameter gamma distr latent period
+    n = 3  # shape parameter gamma distr infectious period
+    s = 1 / days(V.inf_to_sympt)  # latent period
+    y = 1 / days(V.inf_period)  # infectious period
+
+    r = np.log(alpha)
+
+    R = (r * (r / (s * m) + 1) ** m) / (y * (1 - (r / (y * n) + 1) ** -n))
+
+    return R
 
 
 def roundnext(v):
@@ -153,35 +168,11 @@ def date_shifted_by(df: pd.DataFrame, column, by):
     return joined[column + "_2"]
 
 
-def removed_estimate2(df: pd.DataFrame):
-    df = df.copy()
-    # empirical model according to https://covid19dashboards.com/outstanding_cases/
-    # R_n = R_n-1 + (Cn-d - R_n-1) * f   , d=9,f=0.07
-    # where R_n is "recovered or passed away"
-
-    d = V.inf_to_recov - V.inf_to_test
-    f = 0.07
-
-    # make two excel-style tables: dfR and dfC
-    df["Cd"] = date_shifted_by(df, "confirmed", d).fillna(0)
-    dfC = df.pivot(index="country", columns="date", values="Cd")
-    dfR = pd.DataFrame(index=dfC.index, columns=dfC.columns, data=0.0)
-
-    # do one column at a time, assume every date is without gaps and in order
-    for icol, col in enumerate(dfR):
-        if icol >= 1:
-            dfR.iloc[:, icol] = dfR.iloc[:, icol - 1] + np.round(dfC.iloc[:, icol] - dfR.iloc[:, icol - 1]) * f
-
-    # unpivot, reindex, return
-    updated = dfR.reset_index().rename(columns={"index": "country"}).melt(id_vars="country", value_name="removed")
-    extended = left_join_on(df, updated, ["country", "date"])
-    return extended["removed"]
-
-
 def removed_estimate(df: pd.DataFrame):
     df = df.copy()
     # probabilistic odds model according to https://twitter.com/HerrNaumann/status/1242087556898009089
-    # numbers guesstimated from various sources
+    # ratios from RKI
+    # hospitalization ratio fromm NYC DoH
 
     rem_after_inf = [
         (14, 0.70),                         # at home
@@ -194,7 +185,7 @@ def removed_estimate(df: pd.DataFrame):
     for d, p in rem_after_inf:
         d -= days(V.inf_to_test)
         rem_after_test.append((d - 1, p * 0.25))
-        rem_after_test.append((d,     p * 0.50))
+        rem_after_test.append((d, p * 0.50))
         rem_after_test.append((d + 2, p * 0.25))
     min_valid_col = max(d for d, p in rem_after_test)
 
@@ -210,6 +201,7 @@ def removed_estimate(df: pd.DataFrame):
     updated = dfR.reset_index().rename(columns={"index": "country"}).melt(id_vars="country", value_name="removed")
     extended = left_join_on(df, updated, ["country", "date"])
     return extended["removed"]
+
 
 class jhudata:
     data: pd.DataFrame
@@ -236,8 +228,7 @@ class jhudata:
         df["active"] = df["infected"] - df["removed"]
 
         # change per day, averaged
-        df["active_before"] = date_shifted_by(df, "active", days(alpha_rows))
-        df["perday"] = measure_alpha(df["active_before"], df["active"], alpha_rows)
+        df["perday"] = measure_alpha(date_shifted_by(df, "active", days(alpha_rows)), df["active"], alpha_rows)
         df.loc[df["active"] < chart_min_pop, "perday"] = np.nan
         df["Rt"] = alpha_to_Rt(df["perday"])
         # rate of doubling of infections (not active!)
@@ -253,7 +244,8 @@ class jhudata:
         df = cls.data
 
         def overview_country(country):
-            cols = ["confirmed", "deaths", "infected", "recovered", "active", "removed", "removed_shift", "recovered_reported"]
+            cols = ["confirmed", "deaths", "infected", "recovered", "active", "removed", "removed_shift",
+                    "recovered_reported"]
             fig, axs = pk.new_wide()
             axs.set_ylim(100, 100000)
             ge = df[df["country"] == country]
@@ -308,7 +300,7 @@ class jhudata:
 
             plotpart("active", "Active cases", "active", yscale="log", ylim=lambda v: (chart_min_pop, roundnext(v)))
             plotpart("perday", f"Change per day, {alpha_rows}-day average:", "Change per day", ylim=(0.5, 2))
-            plotpart("Rt", f"$R_t$ calculated from {alpha_rows}-day average", "$R_t$", ylim=(0.5, 4))
+            plotpart("Rt", f"$R_t$ calculated from {alpha_rows}-day average", "$R_t$", ylim=(0.5, 6))
             plotpart("doubling", "Days to double", "$T_{double}$ / days", yscale="log")
             plotpart("CFR", "Case fatality rate", "CFR / %", ylim=(0,))
 
@@ -323,7 +315,7 @@ class jhudata:
         def fit_logistic(xdata, ydata):
             from scipy.optimize import curve_fit
             p0 = [max(ydata), np.median(xdata), 1, min(ydata)]  # this is an mandatory initial guess
-            upper = [np.inf, xdata.max()-1, np.inf, np.inf]
+            upper = [np.inf, xdata.max() - 1, np.inf, np.inf]
             lower = [-np.inf, 0, -np.inf, -np.inf]
             # pad = np.arange(-10, 0, 1)
             # xdata = np.hstack((pad, xdata))
