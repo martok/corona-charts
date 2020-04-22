@@ -8,7 +8,7 @@ import glob
 import math
 import shutil
 from time import sleep
-from typing import Union, Sequence, Callable, Tuple, Optional
+from typing import Union, Sequence, Callable, Tuple, Optional, List
 
 import numpy as np
 import pandas as pd
@@ -138,17 +138,78 @@ class mopodata:
         kreise_plot("Thüringen", "th")
 
 
-def date_shifted_by(df: pd.DataFrame, column, by):
-    # all the indexes we have
-    jk: pd.Index = df.columns.intersection(["label", "country", "date"])
-    src = df[jk].copy()
-    src[column] = df[column]
-    dst = src.rename(columns={column: "__newcol"})
-    dst["date"] = dst["date"] + by
-    aligned = pd.merge(src, dst, how="left")
-    aligned.index = src.index
-    return aligned["__newcol"]
+def left_join_on(left: pd.DataFrame, right: pd.DataFrame, on):
+    """ return the result of left ~ljoin~ right, with columns in order <left>, <right_2>"""
+    aligned = pd.merge(left, right, how="left", on=list(on), suffixes=("", "_2"))
+    aligned.index = left.index
+    return aligned
 
+
+def date_shifted_by(df: pd.DataFrame, column, by):
+    jk: pd.Index = df.columns.intersection(["label", "country", "date"])
+    moved = df.copy()
+    moved["date"] = moved["date"] + by
+    joined = left_join_on(df, moved, on=jk)
+    return joined[column + "_2"]
+
+
+def removed_estimate2(df: pd.DataFrame):
+    df = df.copy()
+    # empirical model according to https://covid19dashboards.com/outstanding_cases/
+    # R_n = R_n-1 + (Cn-d - R_n-1) * f   , d=9,f=0.07
+    # where R_n is "recovered or passed away"
+
+    d = V.inf_to_recov - V.inf_to_test
+    f = 0.07
+
+    # make two excel-style tables: dfR and dfC
+    df["Cd"] = date_shifted_by(df, "confirmed", d).fillna(0)
+    dfC = df.pivot(index="country", columns="date", values="Cd")
+    dfR = pd.DataFrame(index=dfC.index, columns=dfC.columns, data=0.0)
+
+    # do one column at a time, assume every date is without gaps and in order
+    for icol, col in enumerate(dfR):
+        if icol >= 1:
+            dfR.iloc[:, icol] = dfR.iloc[:, icol - 1] + np.round(dfC.iloc[:, icol] - dfR.iloc[:, icol - 1]) * f
+
+    # unpivot, reindex, return
+    updated = dfR.reset_index().rename(columns={"index": "country"}).melt(id_vars="country", value_name="removed")
+    extended = left_join_on(df, updated, ["country", "date"])
+    return extended["removed"]
+
+
+def removed_estimate(df: pd.DataFrame):
+    df = df.copy()
+    # probabilistic odds model according to https://twitter.com/HerrNaumann/status/1242087556898009089
+    # numbers guesstimated from various sources
+
+    rem_after_inf = [
+        (14, 0.70),                         # at home
+        (23, 0.30 * 0.75),                  # hospitalized, no ICU
+        (20, 0.30 * 0.25 * 0.5),            # hospitalized, ICU, recovery
+        (20, 0.30 * 0.25 * 0.5),            # hospitalized, ICU, death
+    ]
+    # shift to after confirmation and apply some peak broadening
+    rem_after_test = []
+    for d, p in rem_after_inf:
+        d -= days(V.inf_to_test)
+        rem_after_test.append((d - 1, p * 0.25))
+        rem_after_test.append((d,     p * 0.50))
+        rem_after_test.append((d + 2, p * 0.25))
+    min_valid_col = max(d for d, p in rem_after_test)
+
+    # make two excel-style tables: dfR and dfC
+    dfC = df.pivot(index="country", columns="date", values="confirmed")
+    dfR = pd.DataFrame(index=dfC.index, columns=dfC.columns, data=0.0)
+
+    # do one column at a time, assume every date is without gaps and in order
+    for icol, col in enumerate(dfR):
+        dfR.iloc[:, icol] = np.sum((dfC.iloc[:, icol - dc] * p for dc, p in rem_after_test if dc <= icol), axis=1)
+
+    # unpivot, reindex, return
+    updated = dfR.reset_index().rename(columns={"index": "country"}).melt(id_vars="country", value_name="removed")
+    extended = left_join_on(df, updated, ["country", "date"])
+    return extended["removed"]
 
 class jhudata:
     data: pd.DataFrame
@@ -156,7 +217,7 @@ class jhudata:
     @classmethod
     def load(cls):
         df: pd.DataFrame
-        df = get_jhu_df()
+        df = get_jhu_df().rename(columns={"recovered": "recovered_reported"})
         df = df.groupby(["country", "date"], as_index=False).sum().drop(["Lat", "Long"], axis=1)
 
         # interpret data as outcome of a SIR model:
@@ -166,21 +227,8 @@ class jhudata:
         # active = I - R
 
         df["infected"] = date_shifted_by(df, "confirmed", - V.inf_to_test)
-        if True:
-            df["removed"] = date_shifted_by(df, "confirmed", V.inf_to_recov - V.inf_to_test).fillna(0)
-        else:
-            d = days(9)
-            f = 0.07
-            df["removed"] = date_shifted_by(df, "confirmed", d).fillna(0)
-            icol = df.columns.get_loc("removed")
-            prevrow = None
-            for irow, row in enumerate(df.itertuples()):
-                # y = (df["country"] == row["country"]) & (df["date"] == row["date"] - days(1))
-                # assumption for speed: index is actually sorted
-                if prevrow is not None:
-                    if prevrow.country == row.country and prevrow.date == row.date - days(1):
-                        df.iat[irow, icol] = df.iat[irow - 1, icol] + round(df.iat[irow, icol] - df.iat[irow - 1, icol]) * f
-                prevrow = row
+        df["removed_shift"] = date_shifted_by(df, "confirmed", V.inf_to_recov - V.inf_to_test).fillna(0)
+        df["removed"] = removed_estimate(df[["country", "date", "confirmed"]])
 
         df["recovered"] = df["removed"] - df["deaths"]
         df.loc[df["recovered"] < 0, "recovered"] = 0
@@ -205,13 +253,12 @@ class jhudata:
         df = cls.data
 
         def overview_country(country):
-            cols = ["confirmed", "deaths", "infected", "recovered", "active"]
+            cols = ["confirmed", "deaths", "infected", "recovered", "active", "removed", "removed_shift", "recovered_reported"]
             fig, axs = pk.new_wide()
             axs.set_ylim(100, 100000)
             ge = df[df["country"] == country]
-            ge.plot(x="date", y=cols, ax=axs)
-            axs.set_ylim(chart_min_pop,
-                         roundnext(ge[["confirmed", "deaths", "infected", "recovered", "active"]].values))
+            ge.plot(x="date", y=cols, ax=axs, style=[':' if '_' in c else '-' for c in cols])
+            axs.set_ylim(chart_min_pop, roundnext(ge[cols].values))
             axs.set_title(country)
             pk.set_grid(axs)
             pk.finalize(fig, f"overview_{country}.png")
@@ -266,7 +313,7 @@ class jhudata:
             plotpart("CFR", "Case fatality rate", "CFR / %", ylim=(0,))
 
     @classmethod
-    def fit_mortality(cls):
+    def fit_cfr(cls):
         period_est = 20
 
         def logistic(x, L, x0, k, b):
@@ -276,10 +323,12 @@ class jhudata:
         def fit_logistic(xdata, ydata):
             from scipy.optimize import curve_fit
             p0 = [max(ydata), np.median(xdata), 1, min(ydata)]  # this is an mandatory initial guess
-            pad = np.arange(-10, 0, 1)
-            xdata = np.hstack((pad, xdata))
-            ydata = np.hstack((np.zeros(len(pad)), ydata))
-            popt, pcov = curve_fit(logistic, xdata, ydata, p0, method='trf', maxfev=100)
+            upper = [np.inf, xdata.max()-1, np.inf, np.inf]
+            lower = [-np.inf, 0, -np.inf, -np.inf]
+            # pad = np.arange(-10, 0, 1)
+            # xdata = np.hstack((pad, xdata))
+            # ydata = np.hstack((np.zeros(len(pad)), ydata))
+            popt, pcov = curve_fit(logistic, xdata, ydata, p0, method='trf', maxfev=100, bounds=(lower, upper))
             return popt
 
         df = cls.data
@@ -302,9 +351,12 @@ class jhudata:
                 pass
         # plots for test
         fig, axs = pk.new_wide()
+        rmax = 0
         for country in fitres.sort_values(by="L", ascending=False).index.to_list():
-            sc = axs.scatter(xvalall, tseries[country].to_numpy(), label=country, marker="x")
-            sccolor = pk.get_last_facecolor(axs)
+            v = tseries[country].to_numpy()
+            rmax = max(rmax, np.nanmax(v))
+            sc = axs.scatter(xvalall, v, label=country, marker="x")
+            sccolor = pk.get_object_facecolor(sc)
             fitted = fitres.loc[country]
             if not any(fitted.isnull()):
                 sc.set_label("_")
@@ -312,9 +364,10 @@ class jhudata:
                 term = logistic(fitted["x0"] + 100, *fitted.to_list())
                 axs.plot(xvalall, yval, c=sccolor, label=f"{country}: $m \\rightarrow {term:.1f}$")
         pk.set_grid(axs)
+        axs.set_ylim(0, rmax)
         axs.legend()
         axs.set_xlabel("Days relative to " + str(tseries.index.min()))
-        axs.set_ylabel("Death rate / %")
+        axs.set_ylabel("CFR / %")
         pk.finalize(fig, f"estimated_cfr.png")
 
     @classmethod
@@ -329,8 +382,8 @@ class jhudata:
         for c in sel_countries:
             cdata = traj[traj["country"] == c]
             xydata = cdata[["confirmed", "increase"]].sort_values(by="confirmed").to_numpy()
-            axs.plot(*xydata.T, label=c)
-            axs.scatter(*xydata[-1].T, label="_", c=pk.get_last_facecolor(axs))
+            p = axs.plot(*xydata.T, label=c)
+            axs.scatter(*xydata[-1].T, label="_", c=pk.get_object_facecolor(p))
         axs.set_xscale("log")
         axs.set_yscale("log")
         pk.set_grid(axs)
@@ -362,7 +415,7 @@ tasks = [
     mopodata.load,
     mopodata.run,
     jhudata.load,
-    # jhudata.fit_mortality,
+    # jhudata.fit_cfr,
     jhudata.plot_percountry,
     jhudata.plot_affected,
     jhudata.plot_trajectory,
