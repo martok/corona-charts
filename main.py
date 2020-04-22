@@ -1,3 +1,4 @@
+import subprocess
 import sys
 import os
 
@@ -391,16 +392,29 @@ def publish():
     import corona.__config__ as c
     if not c.publish_enabled:
         return
-    files = glob.glob("[!_]*")
-    for f in files:
-        for retry in range(1, 5):
-            try:
-                dst = os.path.join(c.publish_to, os.path.basename(f))
-                if not os.path.exists(dst) or not filecmp.cmp(f, dst):
-                    shutil.copyfile(f, dst)
-                break
-            except OSError:
-                sleep(0.1 * retry)
+
+    def exitof(cmd) -> int:
+        return subprocess.call(cmd, cwd=os.path.dirname(__file__), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    def step(cmd):
+        ret = subprocess.call(cmd, cwd=os.path.dirname(__file__), stderr=subprocess.STDOUT)
+        if ret:
+            raise OSError(f"Executing step failed with error {ret}: {repr(cmd)}")
+
+    print("\nPublish to Github...")
+    if exitof("git diff --cached --exit-code"):
+        print("Local staged changes, not publishing")
+        return
+
+    if exitof("git diff --exit-code") == 0:
+        print("Nothing to do")
+        return
+
+    print("Committing....")
+    step("git add -u")
+    step('git commit -m "Automated Update" --')
+    step("git push origin")
+
 
 
 tasks = [
