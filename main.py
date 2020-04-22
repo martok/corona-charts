@@ -167,8 +167,10 @@ class jhudata:
         df["active_before"] = date_shifted_by(df, "active", days(alpha_rows))
         df["perday"] = measure_alpha(df["active_before"], df["active"], alpha_rows)
         df.loc[df["active"] < chart_min_pop, "perday"] = np.nan
-        df["doubling"] = alpha_to_doubling(df["perday"])
         df["Rt"] = alpha_to_Rt(df["perday"])
+        # rate of doubling of infections (not active!)
+        df["infected_before"] = date_shifted_by(df, "infected", days(alpha_rows))
+        df["doubling"] = alpha_to_doubling(measure_alpha(df["infected_before"], df["infected"], alpha_rows))
         # mortality
         df["mortality"] = df["deaths"] / df["infected"] * 100
         cls.data = df
@@ -227,7 +229,7 @@ class jhudata:
 
             plotpart("active", "Active cases", "active", yscale="log",  ylim=lambda v: (chart_min_pop, roundnext(v)))
             plotpart("perday", f"Change per day, {alpha_rows}-day average:", "Change per day", ylim=(0.5, 2))
-            plotpart("Rt", f"Rt calculated from {alpha_rows}-day average", "Rt", ylim=(0.5, 4))
+            plotpart("Rt", f"$R_t$ calculated from {alpha_rows}-day average", "$R_t$", ylim=(0.5, 4))
             plotpart("doubling", "Days to double", "$T_{double}$ / days", yscale="log")
             plotpart("mortality", "Mortality", "mortality / %", ylim=(0,))
 
