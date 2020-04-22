@@ -180,9 +180,9 @@ class jhudata:
         # rate of doubling of infections (not active!)
         df["infected_before"] = date_shifted_by(df, "infected", days(alpha_rows))
         df["doubling"] = alpha_to_doubling(measure_alpha(df["infected_before"], df["infected"], alpha_rows))
-        # mortality
-        df["mortality"] = df["deaths"] / df["infected"] * 100
-        df.loc[df["deaths"] < chart_min_deaths, "mortality"] = np.nan
+        # death rate: of removed cases, how many were fatal
+        df["death_rate"] = df["deaths"] / df["removed"] * 100
+        df.loc[(df["deaths"] < chart_min_deaths) | ~np.isfinite(df["death_rate"]) | (df["death_rate"] > 100), "death_rate"] = np.nan
         cls.data = df
 
     @classmethod
@@ -243,7 +243,7 @@ class jhudata:
             plotpart("perday", f"Change per day, {alpha_rows}-day average:", "Change per day", ylim=(0.5, 2))
             plotpart("Rt", f"$R_t$ calculated from {alpha_rows}-day average", "$R_t$", ylim=(0.5, 4))
             plotpart("doubling", "Days to double", "$T_{double}$ / days", yscale="log")
-            plotpart("mortality", "Mortality", "mortality / %", ylim=(0,))
+            plotpart("death_rate", "Death Rate", "death rate / %", ylim=(0,))
 
     @classmethod
     def fit_mortality(cls):
@@ -264,11 +264,11 @@ class jhudata:
 
         df = cls.data
         # select countries with meaningful data
-        datapts = df[["country", "mortality"]].groupby("country").count()
-        sel_countries = datapts[datapts["mortality"] >= period_est].index
+        datapts = df[["country", "death_rate"]].groupby("country").count()
+        sel_countries = datapts[datapts["death_rate"] >= period_est].nlargest(20, "death_rate").index
         raw = df[df["country"].isin(sel_countries)]
         # for each of those countries, make time series
-        tseries = raw.pivot(index="date", columns="country", values="mortality")
+        tseries = raw.pivot(index="date", columns="country", values="death_rate")
         # attempt to fit a logistic to each
         fitres = pd.DataFrame(index=tseries.columns, columns=["L", "x0", "k", "b"])
         xvalall = (tseries.index - tseries.index.min()).days
@@ -289,13 +289,13 @@ class jhudata:
             if not any(fitted.isnull()):
                 sc.set_label("_")
                 yval = logistic(xvalall, *fitted.to_list())
-                term = fitted["L"]
+                term = logistic(fitted["x0"] + 100, *fitted.to_list())
                 axs.plot(xvalall, yval, c=sccolor, label=f"{country}: $m \\rightarrow {term:.1f}$")
         pk.set_grid(axs)
         axs.legend()
         axs.set_xlabel("Days relative to " + str(tseries.index.min()))
-        axs.set_ylabel("Mortality / %")
-        pk.finalize(fig, f"estimated_mortality.png")
+        axs.set_ylabel("Death rate / %")
+        pk.finalize(fig, f"estimated_death_rate.png")
 
 
 def publish():
