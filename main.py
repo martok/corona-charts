@@ -1,14 +1,17 @@
+import sys
+import os
+sys.path.append(os.path.dirname(__file__)+'/..')
+
 import filecmp
 import glob
 import math
-import os
 import shutil
 from time import sleep
 from typing import Union, Sequence
 
 import numpy as np
 import pandas as pd
-import plotkit as pk
+import plotkit.plotkit as pk
 from tqdm import tqdm
 
 from corona.datasource import get_history_df, get_jhu_df
@@ -75,8 +78,8 @@ class mopodata:
         def track_a_region(label, columns=None):
             if columns is None:
                 columns = ["confirmed", "recovered", "deaths"]
-            reg = df[df["label"] == label].set_index("date")
-            reg = reg[columns]
+            roi = df[df["label"] == label].set_index("date")
+            reg = roi[columns].copy()
 
             def mapper(row):
                 try:
@@ -87,32 +90,36 @@ class mopodata:
             reg["change"] = reg.apply(mapper, axis=1)
             reg["doubling"] = alpha_to_doubling(reg["change"])
             reg["dow"] = reg.index.day_name()
+            reg.last_modified = roi["updated"].max()
             return reg
 
         def pivoted(unit, datacol, worst_only=None):
-            piv = df[df["label_parent"] == unit].pivot(index="date", columns="label", values=datacol)
+            roi = df[df["label_parent"] == unit]
+            piv = roi.pivot(index="date", columns="label", values=datacol)
             if worst_only is not None:
                 worst = piv.tail(1).melt().nlargest(worst_only, columns="value")
                 piv = piv[worst["label"].sort_values()]
+            piv.last_modified = roi["updated"].max()
             return piv
 
-        lsa = track_a_region("Sachsen-Anhalt")
-        print(lsa, file=open("report.lsa.txt", "wt"))
+        def land_report(land, short):
+            reg = track_a_region(land)
+            print(reg, file=open(f"report.{short}.txt", "wt"))
 
-        jena = track_a_region("Jena")
-        print(jena, file=open("report.jena.txt", "wt"))
+        def kreise_plot(land, short):
+            fig, axs = pk.new_regular()
+            pv = pivoted(land, "confirmed", 10)
+            pv.plot(ax=axs)
+            axs.set_ylabel("confirmed")
+            axs.annotate("Last data update: "+str(pv.last_modified), xy=(1, 0), xycoords="figure fraction", ha="right", va="bottom")
+            pk.set_grid(axs)
+            pk.finalize(fig, f"{short}_confirmed.png")
 
-        fig, axs = pk.new_regular()
-        pivoted("Sachsen-Anhalt", "confirmed", 10).plot(ax=axs)
-        axs.set_ylabel("confirmed")
-        pk.set_grid(axs)
-        pk.finalize(fig, "lsa_confirmed.png")
+        land_report("Sachsen-Anhalt", "lsa")
+        land_report("Jena", "jena")
 
-        fig, axs = pk.new_regular()
-        pivoted("Thüringen", "confirmed", 10).plot(ax=axs)
-        axs.set_ylabel("confirmed")
-        pk.set_grid(axs)
-        pk.finalize(fig, "th_confirmed.png")
+        kreise_plot("Sachsen-Anhalt", "lsa")
+        kreise_plot("Thüringen", "th")
 
 
 def date_shifted_by(df: pd.DataFrame, column, by):
