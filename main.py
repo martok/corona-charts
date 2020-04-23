@@ -38,7 +38,8 @@ class V:
     sympt_to_test = days(3)
     inf_to_test = inf_to_sympt + sympt_to_test
     inf_to_recov = days(18)
-    inf_period = days(3)
+    spread_start = days(3)
+    generation_period = inf_to_test - spread_start
 
 
 # plotting parameters
@@ -62,7 +63,7 @@ def alpha_to_doubling(alpha):
 
 
 def alpha_to_Rt_simple(alpha):
-    return 1 + (alpha - 1) * days(V.inf_period)
+    return 1 + (alpha - 1) * days(V.generation_period)
 
 
 def alpha_to_Rt(alpha):
@@ -71,7 +72,7 @@ def alpha_to_Rt(alpha):
     m = 4.5  # shape parameter gamma distr latent period
     n = 3  # shape parameter gamma distr infectious period
     s = 1 / days(V.inf_to_sympt)  # latent period
-    y = 1 / days(V.inf_period)  # infectious period
+    y = 1 / days(V.generation_period)  # infectious period
 
     r = np.log(alpha)
 
