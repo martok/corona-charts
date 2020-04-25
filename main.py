@@ -4,16 +4,13 @@ import os
 
 sys.path.append(os.path.dirname(__file__) + '/..')
 
-import filecmp
-import glob
 import math
-import shutil
-from time import sleep
-from typing import Union, Sequence, Callable, Tuple, Optional, List
+from typing import Union, Sequence, Callable, Tuple, Optional, List, Iterable
 
 import numpy as np
 import pandas as pd
 import plotkit.plotkit as pk
+import matplotlib.dates as mdates
 from tqdm import tqdm
 
 from corona.datasource import get_history_df, get_jhu_df
@@ -96,6 +93,37 @@ def join_on(df1: pd.DataFrame, df2: pd.DataFrame, keys: Sequence, **kwargs) -> p
     return pd.merge(df1, df2, left_on=rkey1, right_on=rkey2, **kwargs)
 
 
+def set_dateaxis(axs):
+    axs.margins(x=0)
+    axs.xaxis.set_major_locator(mdates.WeekdayLocator(mdates.MO))
+    axs.xaxis.set_minor_locator(mdates.DayLocator())
+    axs.xaxis.set_major_formatter(mdates.DateFormatter('%b %d'))
+
+
+def plot_dataframe(axs, df: pd.DataFrame, x: Optional = None, y: Optional[Iterable] = None,
+                   style: Optional[Iterable] = None):
+    # for some reason df.plot() completely ruins datetime xaxis so no other formatter works
+    if x is None:
+        xvals = df.index.values
+    elif isinstance(x, str):
+        xvals = df[x].values
+    else:
+        xvals = x
+    if y is None:
+        yvals = df
+    else:
+        yvals = df.loc[:, y]
+    istyle = iter(style) if style else iter([])
+    for ci in yvals:
+        st = next(istyle, None)
+        if st:
+            st = (st,)
+        else:
+            st = ()
+        axs.plot(xvals, yvals[ci], *st, label=ci)
+    axs.legend()
+
+
 class mopodata:
     data: pd.DataFrame
 
@@ -141,10 +169,11 @@ class mopodata:
         def kreise_plot(land, short):
             fig, axs = pk.new_regular()
             pv = pivoted(land, "confirmed", 10)
-            pv.plot(ax=axs)
+            plot_dataframe(axs, pv)
             axs.set_ylabel("confirmed")
             axs.annotate("Last data update: " + str(pv.last_modified), xy=(0.5, 0), xycoords="figure fraction",
                          ha="center", va="bottom")
+            set_dateaxis(axs)
             pk.set_grid(axs)
             pk.finalize(fig, f"local_confirmed_{short}.png")
 
@@ -251,9 +280,11 @@ class jhudata:
             fig, axs = pk.new_wide()
             axs.set_ylim(100, 100000)
             ge = df[df["country"] == country]
-            ge.plot(x="date", y=cols, ax=axs, style=[':' if '_' in c else '-' for c in cols])
+            plot_dataframe(axs, ge, "date", cols, style=[':' if '_' in c else '-' for c in cols])
+
             axs.set_ylim(chart_min_pop, roundnext(ge[cols].values))
             axs.set_title(country)
+            set_dateaxis(axs)
             pk.set_grid(axs)
             pk.finalize(fig, f"overview_{country}.png")
 
@@ -288,7 +319,7 @@ class jhudata:
                 print(rt[~rt.isnull().all(axis=1)].tail(alpha_rows), file=report)
                 print("\n", file=report)
                 fig, axs = pk.new_wide()
-                rt.plot(ax=axs)
+                plot_dataframe(axs, rt)
                 axs.set_title(title)
                 axs.set_ylabel(ylabel)
                 if yscale is not None:
@@ -297,6 +328,7 @@ class jhudata:
                     if callable(ylim):
                         ylim = ylim(rt.values)
                     axs.set_ylim(*ylim)
+                set_dateaxis(axs)
                 pk.set_grid(axs)
                 pk.finalize(fig, f"countries_{column}.png")
 
@@ -415,7 +447,6 @@ def publish():
     step("git add -u")
     step('git commit -m "Automated Update" --')
     step("git push origin")
-
 
 
 tasks = [
