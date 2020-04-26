@@ -92,9 +92,10 @@
         'markdownit': 'https://cdn.jsdelivr.net/npm/markdown-it/dist/markdown-it.min.js',
         'katex': 'https://cdn.jsdelivr.net/npm/katex/dist/katex.min.js',
         'texmath': 'https://cdn.jsdelivr.net/npm/markdown-it-texmath/texmath.min.js',
+        'markdownitFootnote': 'https://cdn.jsdelivr.net/npm/markdown-it-footnote/dist/markdown-it-footnote.min.js',
     }
 
-    waitForScripts(scripts, (markdownit, katex, texmath) => {
+    waitForScripts(scripts, (markdownit, katex, texmath, markdownitFootnote) => {
         const md = markdownit();
         if (katex && texmath) {
             const tm = texmath.use(katex);
@@ -102,6 +103,9 @@
                 engine: katex,
                 delimiters: 'dollars',
             });
+        }
+        if (markdownitFootnote) {
+            md.use(markdownitFootnote);
         }
         for (var src of [...document.querySelectorAll('script[type="text/x-markdown"]')].reverse()) {
             const dest = document.createElement('article');
