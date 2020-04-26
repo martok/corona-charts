@@ -5,7 +5,7 @@ import os
 sys.path.append(os.path.dirname(__file__) + '/..')
 
 import math
-from typing import Union, Sequence, Callable, Tuple, Optional, List, Iterable
+from typing import Union, Sequence, Callable, Tuple, Optional, Iterable
 
 import numpy as np
 import pandas as pd
@@ -13,7 +13,7 @@ import plotkit.plotkit as pk
 import matplotlib.dates as mdates
 from tqdm import tqdm
 
-from corona.datasource import get_history_df, get_jhu_df
+from corona.datasource import get_history_df, get_jhu_df, left_join_on, UnifiedDataModel
 
 pd.set_option("display.max_rows", 500)
 pd.set_option("display.max_columns", 500)
@@ -125,40 +125,32 @@ def plot_dataframe(axs, df: pd.DataFrame, x: Optional = None, y: Optional[Iterab
 
 
 class mopodata:
-    data: pd.DataFrame
+    data: UnifiedDataModel
 
     @classmethod
     def load(cls):
-        cls.data = get_history_df()
+        cls.data = UnifiedDataModel.from_mopo()
 
     @classmethod
     def run(cls):
-        df = cls.data
-
         def track_a_region(label, columns=None):
             if columns is None:
                 columns = ["confirmed", "recovered", "deaths"]
-            roi = df[df["label"] == label].set_index("date")
-            reg = roi[columns].copy()
+            intcols = ["geo_id", "updated"]
 
-            def mapper(row):
-                try:
-                    return measure_alpha(reg.loc[row.name - np.timedelta64(3, "D"), "confirmed"], row["confirmed"], 3)
-                except:
-                    return np.nan
-
-            reg["perday"] = reg.apply(mapper, axis=1)
+            reg = cls.data.series_at(label)[["date"] + intcols + columns]
+            reg["perday"] = measure_alpha(UnifiedDataModel.date_shifted_by(reg, "confirmed", days(alpha_rows)), reg["confirmed"], alpha_rows)
             reg["doubling"] = alpha_to_doubling(reg["perday"])
-            reg["dow"] = reg.index.day_name()
-            reg.last_modified = roi["updated"].max()
-            return reg
+            reg["dow"] = reg["date"].dt.day_name()
+            reg.last_modified = reg["updated"].max()
+            return reg.drop(columns=intcols)
 
         def pivoted(unit, datacol, worst_only=None):
-            roi = df[df["label_parent"] == unit]
-            piv = roi.pivot(index="date", columns="label", values=datacol)
+            roi = cls.data.series_below(unit)
+            piv = roi.pivot(index="date", columns="entity", values=datacol)
             if worst_only is not None:
                 worst = piv.tail(1).melt().nlargest(worst_only, columns="value")
-                piv = piv[worst["label"].sort_values()]
+                piv = piv[worst["entity"].sort_values()]
             piv.last_modified = roi["updated"].max()
             return piv
 
@@ -184,21 +176,6 @@ class mopodata:
         kreise_plot("Thüringen", "th")
 
 
-def left_join_on(left: pd.DataFrame, right: pd.DataFrame, on):
-    """ return the result of left ~ljoin~ right, with columns in order <left>, <right_2>"""
-    aligned = pd.merge(left, right, how="left", on=list(on), suffixes=("", "_2"))
-    aligned.index = left.index
-    return aligned
-
-
-def date_shifted_by(df: pd.DataFrame, column, by):
-    jk: pd.Index = df.columns.intersection(["label", "country", "date"])
-    moved = df.copy()
-    moved["date"] = moved["date"] + by
-    joined = left_join_on(df, moved, on=jk)
-    return joined[column + "_2"]
-
-
 def removed_estimate(df: pd.DataFrame):
     df = df.copy()
     # probabilistic odds model according to https://twitter.com/HerrNaumann/status/1242087556898009089
@@ -221,7 +198,7 @@ def removed_estimate(df: pd.DataFrame):
     min_valid_col = max(d for d, p in rem_after_test)
 
     # make two excel-style tables: dfR and dfC
-    dfC = df.pivot(index="country", columns="date", values="confirmed")
+    dfC = df.pivot(index="entity", columns="date", values="confirmed")
     dfR = pd.DataFrame(index=dfC.index, columns=dfC.columns, data=0.0)
 
     # do one column at a time, assume every date is without gaps and in order
@@ -229,8 +206,8 @@ def removed_estimate(df: pd.DataFrame):
         dfR.iloc[:, icol] = np.sum((dfC.iloc[:, icol - dc] * p for dc, p in rem_after_test if dc <= icol), axis=1)
 
     # unpivot, reindex, return
-    updated = dfR.reset_index().rename(columns={"index": "country"}).melt(id_vars="country", value_name="removed")
-    extended = left_join_on(df, updated, ["country", "date"])
+    updated = dfR.reset_index().rename(columns={"index": "entity"}).melt(id_vars="entity", value_name="removed")
+    extended = left_join_on(df, updated, ["entity", "date"])
     return extended["removed"]
 
 
@@ -240,8 +217,7 @@ class jhudata:
     @classmethod
     def load(cls):
         df: pd.DataFrame
-        df = get_jhu_df().rename(columns={"recovered": "recovered_reported"})
-        df = df.groupby(["country", "date"], as_index=False).sum().drop(["Lat", "Long"], axis=1)
+        df = UnifiedDataModel.from_jhu().series_toplevel().rename(columns={"recovered": "recovered_reported"})
 
         # interpret data as outcome of a SIR model:
         #   S - total population
@@ -249,9 +225,9 @@ class jhudata:
         #   R - removed/recovered, maximum I after longest possible time
         # active = I - R
 
-        df["infected"] = date_shifted_by(df, "confirmed", - V.inf_to_test)
-        df["removed_shift"] = date_shifted_by(df, "confirmed", V.inf_to_recov - V.inf_to_test).fillna(0)
-        df["removed"] = removed_estimate(df[["country", "date", "confirmed"]])
+        df["infected"] = UnifiedDataModel.date_shifted_by(df, "confirmed", - V.inf_to_test)
+        df["removed_shift"] = UnifiedDataModel.date_shifted_by(df, "confirmed", V.inf_to_recov - V.inf_to_test).fillna(0)
+        df["removed"] = removed_estimate(df[["entity", "date", "confirmed"]])
 
         df["recovered"] = df["removed"] - df["deaths"]
         df.loc[df["recovered"] < 0, "recovered"] = 0
@@ -259,11 +235,11 @@ class jhudata:
         df["active"] = df["infected"] - df["removed"]
 
         # change per day, averaged
-        df["perday"] = measure_alpha(date_shifted_by(df, "active", days(alpha_rows)), df["active"], alpha_rows)
+        df["perday"] = measure_alpha(UnifiedDataModel.date_shifted_by(df, "active", days(alpha_rows)), df["active"], alpha_rows)
         df.loc[df["active"] < chart_min_pop, "perday"] = np.nan
         df["Rt"] = alpha_to_Rt(df["perday"])
         # rate of doubling of infections (not active!)
-        df["infected_before"] = date_shifted_by(df, "infected", days(alpha_rows))
+        df["infected_before"] = UnifiedDataModel.date_shifted_by(df, "infected", days(alpha_rows))
         df["doubling"] = alpha_to_doubling(measure_alpha(df["infected_before"], df["infected"], alpha_rows))
         # case fatality rate: of removed cases, how many were fatal
         df["CFR"] = df["deaths"] / df["removed"] * 100
@@ -279,7 +255,7 @@ class jhudata:
                     "recovered_reported"]
             fig, axs = pk.new_wide()
             axs.set_ylim(100, 100000)
-            ge = df[df["country"] == country]
+            ge = df[df["entity"] == country]
             plot_dataframe(axs, ge, "date", cols, style=[':' if '_' in c else '-' for c in cols])
 
             axs.set_ylim(chart_min_pop, roundnext(ge[cols].values))
@@ -299,7 +275,7 @@ class jhudata:
     @staticmethod
     def select_plot_countries(df: pd.DataFrame):
         if chart_show_countries is None:
-            sel_countries = df[["country", "active"]].groupby("country").max().nlargest(
+            sel_countries = df[["entity", "active"]].groupby("entity").max().nlargest(
                 chart_show_most_affected, "active").index
         else:
             sel_countries = chart_show_countries
@@ -309,12 +285,12 @@ class jhudata:
     def plot_affected(cls):
         df = cls.data
         sel_countries = cls.select_plot_countries(df)
-        aff = df[df["country"].isin(sel_countries)]
+        aff = df[df["entity"].isin(sel_countries)]
 
         with open("report.world.txt", "wt") as report:
             def plotpart(column: str, title: str, ylabel: str, *, yscale: Optional[str] = None,
                          ylim: Union[None, Callable, Tuple] = None):
-                rt = aff.pivot(index="date", columns="country", values=column)
+                rt = aff.pivot(index="date", columns="entity", values=column)
                 print(title + ":", file=report)
                 print(rt[~rt.isnull().all(axis=1)].tail(alpha_rows), file=report)
                 print("\n", file=report)
@@ -359,11 +335,11 @@ class jhudata:
 
         df = cls.data
         # select countries with meaningful data
-        datapts = df[["country", "CFR"]].groupby("country").count()
+        datapts = df[["entity", "CFR"]].groupby("entity").count()
         sel_countries = datapts[datapts["CFR"] >= period_est].nlargest(20, "CFR").index
-        raw = df[df["country"].isin(sel_countries)]
+        raw = df[df["entity"].isin(sel_countries)]
         # for each of those countries, make time series
-        tseries = raw.pivot(index="date", columns="country", values="CFR")
+        tseries = raw.pivot(index="date", columns="entity", values="CFR")
         # attempt to fit a logistic to each
         fitres = pd.DataFrame(index=tseries.columns, columns=["L", "x0", "k", "b"])
         xvalall = (tseries.index - tseries.index.min()).days
@@ -401,12 +377,12 @@ class jhudata:
         # see: https://aatishb.com/covidtrends/
         df = cls.data
         sel_countries = cls.select_plot_countries(df)
-        aff = df[df["country"].isin(sel_countries) & (df["confirmed"] > chart_min_pop)]
-        traj = aff[["country", "date", "confirmed"]].copy()
-        traj["increase"] = aff["confirmed"] - date_shifted_by(aff, "confirmed", days(7)).fillna(0)
+        aff = df[df["entity"].isin(sel_countries) & (df["confirmed"] > chart_min_pop)]
+        traj = aff[["entity", "date", "confirmed"]].copy()
+        traj["increase"] = aff["confirmed"] - UnifiedDataModel.date_shifted_by(aff, "confirmed", days(7)).fillna(0)
         fig, axs = pk.new_regular()
         for c in sel_countries:
-            cdata = traj[traj["country"] == c]
+            cdata = traj[traj["entity"] == c]
             xydata = cdata[["confirmed", "increase"]].sort_values(by="confirmed").to_numpy()
             p = axs.plot(*xydata.T, label=c)
             axs.scatter(*xydata[-1].T, label="_", c=pk.get_object_facecolor(p))

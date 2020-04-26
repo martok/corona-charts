@@ -1,4 +1,5 @@
 import os
+from collections import Iterable
 from datetime import datetime
 
 import pandas as pd
@@ -84,6 +85,7 @@ def get_jhu_df() -> DataFrame:
          4   date            18576 non-null  datetime64[ns]
          5   confirmed       18576 non-null  int64
     """
+
     def make(fname, col):
         csv = update_cache(where + fname)
         df = pd.read_csv(csv)
@@ -97,38 +99,139 @@ def get_jhu_df() -> DataFrame:
     return df
 
 
-class UnifiedDataModel:
+def project(df: pd.DataFrame, columns: dict):
+    def getcol(cn, cv):
+        if isinstance(cv, str):
+            if cv == "":
+                return df[cn]
+            return df[cv]
+        if callable(cv):
+            return df.apply(cv, axis=1)
+        return cv
 
+    d = {cn: getcol(cn, cv) for cn, cv in columns.items()}
+    return pd.DataFrame(data=d)
+
+
+def hash_columns(df: pd.DataFrame, columns: Iterable):
+    return df[columns].apply(lambda x: hash(x.tobytes()), axis=1, raw=True)
+
+
+def left_join_on(left: pd.DataFrame, right: pd.DataFrame, on):
+    """ return the result of left ~ljoin~ right, with columns in order <left>, <right_2>"""
+    aligned = pd.merge(left, right, how="left", on=list(on), suffixes=("", "_2"))
+    aligned.index = left.index
+    return aligned
+
+
+class UnifiedDataModel:
     series: pd.DataFrame
     """
-         #   Column          Non-Null Count  Dtype
-        ---  ------          --------------  -----
-         2   entity           19783 non-null  str
-         3   entity_parent    13837 non-null  str
-         8   date             19783 non-null  datetime64
-         12  confirmed        19783 non-null  int64
-         13  recovered        19783 non-null  int64
-         14  deaths           19783 non-null  int64
+         #   Column          Dtype
+        ---  ------          -----
+         2   entity           str
+         3   entity_parent    str
+         8   date             datetime64
+         8   updated          datetime64
+         12  confirmed        int64
+         13  recovered        int64
+         14  deaths           int64
+         14  geo_id           int64
     """
 
     geography: pd.DataFrame
     """
-         #   Column          Non-Null Count  Dtype
-        ---  ------          --------------  -----
-         0   entity          5760 non-null   str
-         1   lat             18576 non-null  float64
-         2   long            18576 non-null  float64
+         #   Column          Dtype
+        ---  ------          -----
+         0   id              str
+         1   lat             float64
+         2   lon             float64
+         2   display         str
     """
 
-    def __init__(self, series: pd.DataFrame, geo:pd.DataFrame):
+    def __init__(self, series: pd.DataFrame, geo: pd.DataFrame):
         self.geography = geo
         self.series = series
 
+    def series_toplevel(self) -> pd.DataFrame:
+        return self.series[self.series["entity_parent"].isna()]
+
+    def series_at(self, entity: str) -> pd.DataFrame:
+        return self.series[self.series["entity"] == entity]
+
+    def series_below(self, entity_parent: str) -> pd.DataFrame:
+        return self.series[self.series["entity_parent"] == entity_parent]
+
     @staticmethod
     def from_jhu():
-        df = get_jhu_df().rename(columns={"state": "entity", "country": "entity_parent"})
-        no_parent = df[df["entity"].isna()]
-        no_parent["entity"] = no_parent["entity_parent"]
-        no_parent["entity_parent"] = None
+        df = get_jhu_df()
 
+        # sum up all toplevel-entries (nan, "United Kingdom")
+        toplevel_total = project(df.groupby(["country", "date"], as_index=False).sum(), {
+            "state": pd.Series(dtype=object),
+            "country": "",
+            "date": "",
+            "confirmed": "",
+            "deaths": "",
+            "recovered": "",
+        })
+        # some countries don't have summary lines, only individual states (China)
+        #  take all aggregates, outer join non-aggregated values
+        #  -> rows for all, filled with individual data for non-aggregate rows or countries that have both
+        toprows = toplevel_total[["state", "country", "date"]]
+        m = toprows.merge(df, on=["state", "country", "date"], how="outer")
 
+        # join aggregate columns for all
+        df = left_join_on(m, toplevel_total, on=["state", "country", "date"])
+
+        # move toplevel-totals to used fields, shift to "subunit of world" ("United Kingdom", nan)
+        toplevel = df["state"].isna()
+        df.loc[toplevel, "state"] = df.loc[toplevel, "country"]
+        df.loc[toplevel, "country"] = pd.Series(dtype=object)
+        df.loc[toplevel, "confirmed"] = df.loc[toplevel, "confirmed_2"]
+        df.loc[toplevel, "deaths"] = df.loc[toplevel, "deaths_2"]
+        df.loc[toplevel, "recovered"] = df.loc[toplevel, "recovered_2"]
+        df["geo_id"] = hash_columns(df, ["state", "country"])
+
+        # collect colums actually used
+        ser = project(df, {
+            "entity": "state",
+            "entity_parent": "country",
+            "date": "",
+            "updated": pd.to_datetime('today').date(),
+            "confirmed": "",
+            "recovered": "",
+            "deaths": "",
+            "geo_id": ""
+        }).sort_values(by=["date", "entity_parent", "entity"])
+        geo_g = df.groupby("geo_id", as_index=False).first()
+        geo = project(geo_g, {"id": "geo_id", "lat": "Lat", "lon": "Long",
+                              "display": geo_g["country"].fillna("") + "/" + geo_g["state"].fillna("")})
+        return UnifiedDataModel(ser, geo)
+
+    @staticmethod
+    def from_mopo():
+        df = get_history_df()
+        df["geo_id"] = hash_columns(df, ["label", "label_parent"])
+        ser = project(df, {
+            "entity": "label",
+            "entity_parent": "label_parent",
+            "date": "",
+            "updated": "",
+            "confirmed": "",
+            "recovered": "",
+            "deaths": "",
+            "geo_id": ""
+        })
+        geo_g = df.groupby("geo_id", as_index=False).first()
+        geo = project(geo_g, {"id": "geo_id", "lat": "", "lon": "",
+                              "display": geo_g["label_parent"].fillna("") + "/" + geo_g["label"].fillna("")})
+        return UnifiedDataModel(ser, geo)
+
+    @staticmethod
+    def date_shifted_by(df: pd.DataFrame, column, by):
+        jk: pd.Index = df.columns.intersection(["entity", "entity_parent", "geo_id", "date"])
+        moved = df.copy()
+        moved["date"] = moved["date"] + by
+        joined = left_join_on(df, moved, on=jk)
+        return joined[column + "_2"]
