@@ -95,3 +95,40 @@ def get_jhu_df() -> DataFrame:
     df_r = make("time_series_covid19_recovered_global.csv", "recovered")
     df = df_c.merge(df_d).merge(df_r)
     return df
+
+
+class UnifiedDataModel:
+
+    series: pd.DataFrame
+    """
+         #   Column          Non-Null Count  Dtype
+        ---  ------          --------------  -----
+         2   entity           19783 non-null  str
+         3   entity_parent    13837 non-null  str
+         8   date             19783 non-null  datetime64
+         12  confirmed        19783 non-null  int64
+         13  recovered        19783 non-null  int64
+         14  deaths           19783 non-null  int64
+    """
+
+    geography: pd.DataFrame
+    """
+         #   Column          Non-Null Count  Dtype
+        ---  ------          --------------  -----
+         0   entity          5760 non-null   str
+         1   lat             18576 non-null  float64
+         2   long            18576 non-null  float64
+    """
+
+    def __init__(self, series: pd.DataFrame, geo:pd.DataFrame):
+        self.geography = geo
+        self.series = series
+
+    @staticmethod
+    def from_jhu():
+        df = get_jhu_df().rename(columns={"state": "entity", "country": "entity_parent"})
+        no_parent = df[df["entity"].isna()]
+        no_parent["entity"] = no_parent["entity_parent"]
+        no_parent["entity_parent"] = None
+
+
