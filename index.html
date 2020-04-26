@@ -6,15 +6,72 @@ Data processing is subject to change without notice at any time, for any reason.
 
 ## Charts
 
+These plots use a date-correction method to get true infected cases at a specific date. This is neccessary because
+a person entering the record as confirmed was actually infected (and infectious) a few days prior, taking incubation
+period and reporting delays into account. For this reason, using confirmed at one day will always underestimate the
+true number of infected.
+
+Recovered cases are not consistently reported at all, and there are large differences between countries.
+Therefore, recoveries need to be modelled.
+First, removed cases (in the [SIR model](https://en.wikipedia.org/wiki/Compartmental_models_in_epidemiology)
+sense of the word) are estimated from a multi-step probabilistic model based on possible patient histories.
+This number is related to the number of confirmed deaths to find recoveries as $recovered = removed - deaths$.
+See function `removed_estimate` for details of the model, including parameters.
+
+Active cases are calculated from these values as $active = infected - recovered - deaths$.
+
+The specific constants can be found in [`class V`](https://github.com/martok/corona-charts/blob/master/main.py#L33).
+
+
 ### Global Overview
 ![Active Cases](countries_active.png)
-![Time to Doubling](countries_doubling.png)
+
 ![Change Per Day](countries_perday.png)
+
+$$\alpha = \sqrt[span]{ \frac{A_t}{A_{t-span}} }, \text{ with } span=4 $$
+
+![Time to Doubling](countries_doubling.png)
+
+$$T_{double} = \frac{\log 2}{\log \alpha} $$
+
 ![Estimated Rt](countries_Rt.png)
+
+$$
+    r = \log \alpha \\
+    \sigma = 1 / {latent\_period} \\
+    \gamma = 1 / {infectious\_period} \\
+    R_t = \frac{ r (\frac{r}{\sigma m} + 1)^m  }{ \gamma [1 - (\frac{r}{\gamma n} + 1)^{-n} ] }
+$$
+
+Technically, $R_t$ ("the number of people a single carrier directly spreads to during their infectious period") only makes sense
+if the rate of infection is constant during the entire infectious period.
+This is generally only true during a few days at the start of the epidemic, before a country (or even a large number of
+individuals) takes measures to reduce spread - but in this time, the sample size is too small for accurate calculations.
+Values also become a bit more reliable once a steady state of constant new infections per day is reached. Once that happens
+however, Rt is by definition 1.
+Nonetheless, R0 has been estimated between 3.8-8.9 [^Sanche2020], a value which is reproduced fairly well in early stages
+of most countries in this plot.
+
+[^Sanche2020]: [Sanche S, Lin YT, Xu C, Romero-Severson E, Hengartner N, Ke R. High contagiousness and rapid spread of severe acute respiratory syndrome coronavirus 2. Emerg Infect Dis. 2020 Jul](https://doi.org/10.3201/eid2607.200282)
+
+
 ![Trajectory](trajectory.png)
+
+Concept borrows from [Aatish Bhatia & MinutePhysics](https://aatishb.com/covidtrends/):
+> Plot the new confirmed cases of COVID-19 in the past week vs. the total confirmed cases to date.
+> When plotted in this way, exponential growth is represented as a straight line that slopes upwards.
+
 ![Case Fatality Rate](countries_CFR.png)
 
+Case fatality rates depend extremely on the volume of testing (=number of confirmed light cases that will survive) and
+attribution of fatalities. The true global average is probably somewhere between the ones shown here.
+
 ### Per-Country Data
+
+Full datasets for selected countries.
+As a comparision, `removed_shift` shows a simple date-shift after infection.
+Note how `recovered_reported` is generally quite different from the calculated likely value.
+
 ![China](overview_China.png)
 ![US](overview_US.png)
 ![Italy](overview_Italy.png)
