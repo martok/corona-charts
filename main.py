@@ -147,6 +147,9 @@ class mopodata:
 
         def pivoted(unit, datacol, worst_only=None):
             roi = cls.data.series_below(unit)
+            roi = roi[~roi["entity"].str.contains("weitere")]
+            roi["perday"] = measure_alpha(UnifiedDataModel.date_shifted_by(roi, "confirmed", days(alpha_rows)), roi["confirmed"], alpha_rows)
+            roi["new_confirmed"] = (roi["confirmed"] - UnifiedDataModel.date_shifted_by(roi, "confirmed", days(2))) / 2
             piv = roi.pivot(index="date", columns="entity", values=datacol)
             if worst_only is not None:
                 worst = piv.tail(1).melt().nlargest(worst_only, columns="value")
@@ -158,22 +161,23 @@ class mopodata:
             reg = track_a_region(land)
             print(reg, file=open(f"report.{short}.txt", "wt"))
 
-        def kreise_plot(land, short):
+        def kreise_plot(land, short, *, field="confirmed", maxn: Optional[int] = 10):
             fig, axs = pk.new_regular()
-            pv = pivoted(land, "confirmed", 10)
+            pv = pivoted(land, field, maxn)
             plot_dataframe(axs, pv)
-            axs.set_ylabel("confirmed")
+            axs.set_ylabel(field)
             axs.annotate("Last data update: " + str(pv.last_modified), xy=(0.5, 0), xycoords="figure fraction",
                          ha="center", va="bottom")
             set_dateaxis(axs)
             pk.set_grid(axs)
-            pk.finalize(fig, f"local_confirmed_{short}.png")
+            pk.finalize(fig, f"local_{field}_{short}.png")
 
         land_report("Sachsen-Anhalt", "lsa")
         land_report("Jena", "jena")
 
         kreise_plot("Sachsen-Anhalt", "lsa")
         kreise_plot("Thüringen", "th")
+        kreise_plot("Deutschland", "de", field="new_confirmed", maxn=None)
 
 
 def removed_estimate(df: pd.DataFrame):
