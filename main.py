@@ -1,6 +1,9 @@
+import os
 import subprocess
 import sys
-import os
+from itertools import islice
+
+from more_itertools import padnone
 
 sys.path.append(os.path.dirname(__file__) + '/..')
 
@@ -13,7 +16,7 @@ import plotkit.plotkit as pk
 import matplotlib.dates as mdates
 from tqdm import tqdm
 
-from corona.datasource import get_history_df, get_jhu_df, left_join_on, UnifiedDataModel
+from corona.datasource import left_join_on, UnifiedDataModel
 
 pd.set_option("display.max_rows", 500)
 pd.set_option("display.max_columns", 500)
@@ -101,8 +104,9 @@ def set_dateaxis(axs):
 
 
 def plot_dataframe(axs, df: pd.DataFrame, x: Optional = None, y: Optional[Iterable] = None,
-                   style: Optional[Iterable] = None):
+                   style: Optional[Iterable] = None, stacked=False):
     # for some reason df.plot() completely ruins datetime xaxis so no other formatter works
+    # reinvent the wheel...
     if x is None:
         xvals = df.index.values
     elif isinstance(x, str):
@@ -113,13 +117,13 @@ def plot_dataframe(axs, df: pd.DataFrame, x: Optional = None, y: Optional[Iterab
         yvals = df
     else:
         yvals = df.loc[:, y]
-    istyle = iter(style) if style else iter([])
-    for ci in yvals:
-        st = next(istyle, None)
-        if st:
-            st = (st,)
-        else:
-            st = ()
+    if style is None:
+        style = []
+    if stacked:
+        yvals = yvals.cumsum(axis=1)
+    cols = yvals.columns
+    styletup = [(st,) if st else () for st in islice(padnone(iter(style)), len(cols))]
+    for st, ci in zip(styletup, cols):
         axs.plot(xvals, yvals[ci], *st, label=ci)
     axs.legend()
 
@@ -161,15 +165,18 @@ class mopodata:
             reg = track_a_region(land)
             print(reg, file=open(f"report.{short}.txt", "wt"))
 
-        def kreise_plot(land, short, *, field="confirmed", maxn: Optional[int] = 10):
+        def kreise_plot(land, short, *, field="confirmed", maxn: Optional[int] = 10, stack=False):
+            import matplotlib as mpl
             fig, axs = pk.new_regular()
             pv = pivoted(land, field, maxn)
-            plot_dataframe(axs, pv)
+            axs.set_prop_cycle(mpl.rcsetup.cycler("linestyle", ["-", "-.", "--"]) * mpl.rcParams["axes.prop_cycle"])
+            plot_dataframe(axs, pv, stacked=stack)
             axs.set_ylabel(field)
             axs.annotate("Last data update: " + str(pv.last_modified), xy=(0.5, 0), xycoords="figure fraction",
                          ha="center", va="bottom")
             set_dateaxis(axs)
             pk.set_grid(axs)
+            axs.set_ylim(0,)
             pk.finalize(fig, f"local_{field}_{short}.png")
 
         land_report("Sachsen-Anhalt", "lsa")
@@ -177,7 +184,7 @@ class mopodata:
 
         kreise_plot("Sachsen-Anhalt", "lsa")
         kreise_plot("Thüringen", "th")
-        kreise_plot("Deutschland", "de", field="new_confirmed", maxn=None)
+        kreise_plot("Deutschland", "de", field="new_confirmed", maxn=20, stack=True)
 
 
 def removed_estimate(df: pd.DataFrame):
