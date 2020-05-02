@@ -128,65 +128,6 @@ def plot_dataframe(axs, df: pd.DataFrame, x: Optional = None, y: Optional[Iterab
     axs.legend()
 
 
-class mopodata:
-    data: UnifiedDataModel
-
-    @classmethod
-    def load(cls):
-        cls.data = UnifiedDataModel.from_mopo()
-
-    @classmethod
-    def run(cls):
-        def track_a_region(label, columns=None):
-            if columns is None:
-                columns = ["confirmed", "recovered", "deaths"]
-            intcols = ["geo_id", "updated"]
-
-            reg = cls.data.series_at(label)[["date"] + intcols + columns]
-            reg["perday"] = measure_alpha(UnifiedDataModel.date_shifted_by(reg, "confirmed", days(alpha_rows)), reg["confirmed"], alpha_rows)
-            reg["doubling"] = alpha_to_doubling(reg["perday"])
-            reg["dow"] = reg["date"].dt.day_name()
-            reg.last_modified = reg["updated"].max()
-            return reg.drop(columns=intcols)
-
-        def pivoted(unit, datacol, worst_only=None):
-            roi = cls.data.series_below(unit)
-            roi = roi[~roi["entity"].str.contains("weitere")]
-            roi["perday"] = measure_alpha(UnifiedDataModel.date_shifted_by(roi, "confirmed", days(alpha_rows)), roi["confirmed"], alpha_rows)
-            roi["new_confirmed"] = (roi["confirmed"] - UnifiedDataModel.date_shifted_by(roi, "confirmed", days(2))) / 2
-            piv = roi.pivot(index="date", columns="entity", values=datacol)
-            if worst_only is not None:
-                worst = piv.tail(1).melt().nlargest(worst_only, columns="value")
-                piv = piv[worst["entity"].sort_values()]
-            piv.last_modified = roi["updated"].max()
-            return piv
-
-        def land_report(land, short):
-            reg = track_a_region(land)
-            print(reg, file=open(f"report.{short}.txt", "wt"))
-
-        def kreise_plot(land, short, *, field="confirmed", maxn: Optional[int] = 10, stack=False):
-            import matplotlib as mpl
-            fig, axs = pk.new_regular()
-            pv = pivoted(land, field, maxn)
-            axs.set_prop_cycle(mpl.rcsetup.cycler("linestyle", ["-", "-.", "--"]) * mpl.rcParams["axes.prop_cycle"])
-            plot_dataframe(axs, pv, stacked=stack)
-            axs.set_ylabel(field)
-            axs.annotate("Last data update: " + str(pv.last_modified), xy=(0.5, 0), xycoords="figure fraction",
-                         ha="center", va="bottom")
-            set_dateaxis(axs)
-            pk.set_grid(axs)
-            axs.set_ylim(0,)
-            pk.finalize(fig, f"local_{field}_{short}.png")
-
-        land_report("Sachsen-Anhalt", "lsa")
-        land_report("Jena", "jena")
-
-        kreise_plot("Sachsen-Anhalt", "lsa")
-        kreise_plot("Thüringen", "th")
-        kreise_plot("Deutschland", "de", field="new_confirmed", maxn=20, stack=True)
-
-
 def removed_estimate(df: pd.DataFrame):
     df = df.copy()
     # probabilistic odds model according to https://twitter.com/HerrNaumann/status/1242087556898009089
@@ -222,6 +163,95 @@ def removed_estimate(df: pd.DataFrame):
     return extended["removed"]
 
 
+def extend_data(df: pd.DataFrame):
+    # interpret data as outcome of a SIR model:
+    #   S - total population
+    #   I - get confirmed a few days later
+    #   R - removed/recovered, maximum I after longest possible time
+    # active = I - R
+
+    df["infected"] = UnifiedDataModel.date_shifted_by(df, "confirmed", - V.inf_to_test)
+    df["removed_shift"] = UnifiedDataModel.date_shifted_by(df, "confirmed", V.inf_to_recov - V.inf_to_test).fillna(0)
+    df["removed"] = removed_estimate(df[["entity", "date", "confirmed"]])
+
+    df["recovered"] = df["removed"] - df["deaths"]
+    df.loc[df["recovered"] < 0, "recovered"] = 0
+
+    df["active"] = df["infected"] - df["removed"]
+
+    # change per day, averaged
+    df["perday"] = measure_alpha(UnifiedDataModel.date_shifted_by(df, "active", days(alpha_rows)), df["active"], alpha_rows)
+    df.loc[df["active"] < chart_min_pop, "perday"] = np.nan
+    df["Rt"] = alpha_to_Rt(df["perday"])
+    # rate of doubling of infections (not active!)
+    df["infected_before"] = UnifiedDataModel.date_shifted_by(df, "infected", days(alpha_rows))
+    df["doubling"] = alpha_to_doubling(measure_alpha(df["infected_before"], df["infected"], alpha_rows))
+    # case fatality rate: of removed cases, how many were fatal
+    df["CFR"] = df["deaths"] / df["removed"] * 100
+    df.loc[(df["deaths"] < chart_min_deaths) | ~np.isfinite(df["CFR"]) | (df["CFR"] > 100), "CFR"] = np.nan
+    # Weekday
+    df["dow"] = df["date"].dt.day_name()
+
+
+class mopodata:
+    data: UnifiedDataModel
+
+    @classmethod
+    def load(cls):
+        cls.data = UnifiedDataModel.from_mopo()
+
+    @classmethod
+    def run(cls):
+        def region_data(*, at: Optional[str] = None, below: Optional[str] = None):
+            if at is not None:
+                df = cls.data.series_at(at)
+            elif below is not None:
+                df = cls.data.series_below(below)
+            else:
+                return
+            df = df[~df["entity"].str.contains("weitere")].copy()
+            extend_data(df)
+            return df
+
+        def pivoted(entity, datacol, worst_only=None):
+            roi = region_data(below=entity)
+            roi["new_confirmed"] = (roi["confirmed"] - UnifiedDataModel.date_shifted_by(roi, "confirmed", days(2))) / 2
+            piv = roi.pivot(index="date", columns="entity", values=datacol)
+            if worst_only is not None:
+                last_nonempty = piv[~piv.isnull().all(axis=1)].tail(1)
+                worst = last_nonempty.melt().nlargest(worst_only, columns="value")
+                piv = piv[worst["entity"].sort_values()]
+            piv.last_modified = roi["updated"].max()
+            return piv
+
+        def entity_report(land, short):
+            """ show a few items for a single entity """
+            reg = region_data(at=land)
+            reg = reg[["date", "dow", "confirmed", "recovered", "deaths", "active", "perday", "infected", "doubling"]]
+            print(reg, file=open(f"report.{short}.txt", "wt"))
+
+        def kreise_plot(entity_parent, short, *, field="confirmed", maxn: Optional[int] = 10, stack=False):
+            import matplotlib as mpl
+            fig, axs = pk.new_regular()
+            pv = pivoted(entity_parent, field, maxn)
+            axs.set_prop_cycle(mpl.rcsetup.cycler("linestyle", ["-", "-.", "--"]) * mpl.rcParams["axes.prop_cycle"])
+            plot_dataframe(axs, pv, stacked=stack)
+            axs.set_ylabel(field)
+            axs.annotate("Last data update: " + str(pv.last_modified), xy=(0.5, 0), xycoords="figure fraction",
+                         ha="center", va="bottom")
+            set_dateaxis(axs)
+            pk.set_grid(axs)
+            axs.set_ylim(0,)
+            pk.finalize(fig, f"local_{field}_{short}.png")
+
+        entity_report("Sachsen-Anhalt", "lsa")
+        entity_report("Jena", "jena")
+
+        kreise_plot("Sachsen-Anhalt", "lsa", field="active")
+        kreise_plot("Thüringen", "th")
+        kreise_plot("Deutschland", "de", field="new_confirmed", maxn=20, stack=True)
+
+
 class jhudata:
     data: pd.DataFrame
 
@@ -230,31 +260,7 @@ class jhudata:
         df: pd.DataFrame
         df = UnifiedDataModel.from_jhu().series_toplevel().rename(columns={"recovered": "recovered_reported"})
 
-        # interpret data as outcome of a SIR model:
-        #   S - total population
-        #   I - get confirmed a few days later
-        #   R - removed/recovered, maximum I after longest possible time
-        # active = I - R
-
-        df["infected"] = UnifiedDataModel.date_shifted_by(df, "confirmed", - V.inf_to_test)
-        df["removed_shift"] = UnifiedDataModel.date_shifted_by(df, "confirmed", V.inf_to_recov - V.inf_to_test).fillna(0)
-        df["removed"] = removed_estimate(df[["entity", "date", "confirmed"]])
-
-        df["recovered"] = df["removed"] - df["deaths"]
-        df.loc[df["recovered"] < 0, "recovered"] = 0
-
-        df["active"] = df["infected"] - df["removed"]
-
-        # change per day, averaged
-        df["perday"] = measure_alpha(UnifiedDataModel.date_shifted_by(df, "active", days(alpha_rows)), df["active"], alpha_rows)
-        df.loc[df["active"] < chart_min_pop, "perday"] = np.nan
-        df["Rt"] = alpha_to_Rt(df["perday"])
-        # rate of doubling of infections (not active!)
-        df["infected_before"] = UnifiedDataModel.date_shifted_by(df, "infected", days(alpha_rows))
-        df["doubling"] = alpha_to_doubling(measure_alpha(df["infected_before"], df["infected"], alpha_rows))
-        # case fatality rate: of removed cases, how many were fatal
-        df["CFR"] = df["deaths"] / df["removed"] * 100
-        df.loc[(df["deaths"] < chart_min_deaths) | ~np.isfinite(df["CFR"]) | (df["CFR"] > 100), "CFR"] = np.nan
+        extend_data(df)
         cls.data = df
 
     @classmethod
