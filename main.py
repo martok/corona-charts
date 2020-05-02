@@ -141,13 +141,12 @@ def removed_estimate(df: pd.DataFrame):
         (20, 0.30 * 0.25 * 0.5),            # hospitalized, ICU, death
     ]
     # shift to after confirmation and apply some peak broadening
-    rem_after_test = []
+    rem_after_test = {}
     for d, p in rem_after_inf:
         d -= days(V.inf_to_test)
-        rem_after_test.append((d - 1, p * 0.25))
-        rem_after_test.append((d, p * 0.50))
-        rem_after_test.append((d + 2, p * 0.25))
-    min_valid_col = max(d for d, p in rem_after_test)
+        rem_after_test[d - 1] = rem_after_test.setdefault(d - 1, 0) + p * 0.25
+        rem_after_test[d] = rem_after_test.setdefault(d, 0) + p * 0.5
+        rem_after_test[d + 1] = rem_after_test.setdefault(d + 1, 0) + p * 0.25
 
     # make two excel-style tables: dfR and dfC
     dfC = df.pivot(index="entity", columns="date", values="confirmed")
@@ -155,7 +154,7 @@ def removed_estimate(df: pd.DataFrame):
 
     # do one column at a time, assume every date is without gaps and in order
     for icol, col in enumerate(dfR):
-        dfR.iloc[:, icol] = np.sum((dfC.iloc[:, icol - dc].to_numpy() * p for dc, p in rem_after_test if dc <= icol), axis=1)
+        dfR.iloc[:, icol] = np.sum((dfC.iloc[:, icol - dc].to_numpy() * p for dc, p in rem_after_test.items() if dc <= icol), axis=1)
 
     # unpivot, reindex, return
     updated = dfR.reset_index().rename(columns={"index": "entity"}).melt(id_vars="entity", value_name="removed")
