@@ -155,7 +155,7 @@ def removed_estimate(df: pd.DataFrame):
 
     # do one column at a time, assume every date is without gaps and in order
     for icol, col in enumerate(dfR):
-        dfR.iloc[:, icol] = np.sum((dfC.iloc[:, icol - dc] * p for dc, p in rem_after_test if dc <= icol), axis=1)
+        dfR.iloc[:, icol] = np.sum((dfC.iloc[:, icol - dc].to_numpy() * p for dc, p in rem_after_test if dc <= icol), axis=1)
 
     # unpivot, reindex, return
     updated = dfR.reset_index().rename(columns={"index": "entity"}).melt(id_vars="entity", value_name="removed")
