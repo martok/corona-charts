@@ -1,7 +1,9 @@
 import os
 from collections import Iterable
 from datetime import datetime
+from typing import Callable
 
+import numpy as np
 import pandas as pd
 import requests
 import tqdm
@@ -229,9 +231,45 @@ class UnifiedDataModel:
         return UnifiedDataModel(ser, geo)
 
     @staticmethod
-    def date_shifted_by(df: pd.DataFrame, column, by):
+    def date_shifted_by(df: pd.DataFrame, column: str, by):
+        """
+        :param by: shift amount, negative: take value from future
+        """
         jk: pd.Index = df.columns.intersection(["entity", "entity_parent", "geo_id", "date"])
         moved = df.copy()
         moved["date"] = moved["date"] + by
         joined = left_join_on(df, moved, on=jk)
         return joined[column + "_2"]
+
+    @staticmethod
+    def date_shifted_kernel(df: pd.DataFrame, column: str, kernel: np.ndarray, *,
+                            operation: Callable = np.sum):
+        # simplify kernel
+        kerndict = {}
+        for d, w in zip(kernel[:, 0], kernel[:, 1]):
+            d = round(d)
+            kerndict[d] = w + kerndict.setdefault(d, 0.0)
+        kernel = np.array(list(sorted(kerndict.items())))
+        left_offset = kernel[:, 0].min()
+        right_offset = kernel[:, 0].max()
+
+        # pivot source and dest, keeping columns needed to recover index later
+        jk: pd.Index = df.columns.intersection(["entity", "entity_parent", "geo_id", "date"])
+        # FIXME: index should be full mergekey?
+        dfsrc = df.pivot(index="entity", columns="date", values=column)
+        dfdest = pd.DataFrame(index=dfsrc.index, columns=dfsrc.columns, data=0.0)
+
+        # kernel operation
+        # FIXME cache each *date* shift
+        colcache = {}
+        for icol, col in enumerate(dfsrc):
+            colcache[icol] = dfsrc.iloc[:, icol].to_numpy()
+        # do one column at a time, assume every date is without gaps and in order
+        for icol, col in enumerate(dfsrc):
+            dfdest.iloc[:, icol] = operation((colcache[icol - dc] * p for dc, p in kernel[:] if dc <= icol), axis=1)
+
+        # unpivot
+        updated = dfdest.reset_index().rename(columns={"index": "entity"}).melt(id_vars="entity", value_name="__newcol")
+        # merge on source index
+        extended = left_join_on(df, updated, ["entity", "date"])
+        return extended["__newcol"]
