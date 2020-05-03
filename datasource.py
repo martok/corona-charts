@@ -138,14 +138,14 @@ class UnifiedDataModel:
          12  confirmed        int64
          13  recovered        int64
          14  deaths           int64
-         14  geo_id           int64
+         14  entity_id        int64                 uniquely identifies a "entity in entity_parent" location
     """
 
     geography: pd.DataFrame
     """
          #   Column          Dtype
         ---  ------          -----
-         0   id              str
+         0   id              str                    FK series.entity_id
          1   lat             float64
          2   lon             float64
          2   display         str
@@ -193,7 +193,7 @@ class UnifiedDataModel:
         df.loc[toplevel, "confirmed"] = df.loc[toplevel, "confirmed_2"]
         df.loc[toplevel, "deaths"] = df.loc[toplevel, "deaths_2"]
         df.loc[toplevel, "recovered"] = df.loc[toplevel, "recovered_2"]
-        df["geo_id"] = hash_columns(df, ["state", "country"])
+        df["entity_id"] = hash_columns(df, ["state", "country"])
 
         # collect colums actually used
         ser = project(df, {
@@ -204,17 +204,17 @@ class UnifiedDataModel:
             "confirmed": "",
             "recovered": "",
             "deaths": "",
-            "geo_id": ""
+            "entity_id": ""
         }).sort_values(by=["date", "entity_parent", "entity"])
-        geo_g = df.groupby("geo_id", as_index=False).first()
-        geo = project(geo_g, {"id": "geo_id", "lat": "Lat", "lon": "Long",
+        geo_g = df.groupby("entity_id", as_index=False).first()
+        geo = project(geo_g, {"id": "entity_id", "lat": "Lat", "lon": "Long",
                               "display": geo_g["country"].fillna("") + "/" + geo_g["state"].fillna("")})
         return UnifiedDataModel(ser, geo)
 
     @staticmethod
     def from_mopo():
         df = get_history_df()
-        df["geo_id"] = hash_columns(df, ["label", "label_parent"])
+        df["entity_id"] = hash_columns(df, ["label", "label_parent"])
         ser = project(df, {
             "entity": "label",
             "entity_parent": "label_parent",
@@ -223,10 +223,10 @@ class UnifiedDataModel:
             "confirmed": "",
             "recovered": "",
             "deaths": "",
-            "geo_id": ""
+            "entity_id": ""
         })
-        geo_g = df.groupby("geo_id", as_index=False).first()
-        geo = project(geo_g, {"id": "geo_id", "lat": "", "lon": "",
+        geo_g = df.groupby("entity_id", as_index=False).first()
+        geo = project(geo_g, {"id": "entity_id", "lat": "", "lon": "",
                               "display": geo_g["label_parent"].fillna("") + "/" + geo_g["label"].fillna("")})
         return UnifiedDataModel(ser, geo)
 
@@ -235,7 +235,7 @@ class UnifiedDataModel:
         """
         :param by: shift amount, negative: take value from future
         """
-        jk: pd.Index = df.columns.intersection(["entity", "entity_parent", "geo_id", "date"])
+        jk: pd.Index = df.columns.intersection(["entity_id", "entity", "entity_parent", "date"])
         moved = df.copy()
         moved["date"] = moved["date"] + by
         joined = left_join_on(df, moved, on=jk)
@@ -254,13 +254,12 @@ class UnifiedDataModel:
         right_offset = kernel[:, 0].max()
 
         # pivot source and dest, keeping columns needed to recover index later
-        jk: pd.Index = df.columns.intersection(["entity", "entity_parent", "geo_id", "date"])
-        # FIXME: index should be full mergekey?
-        dfsrc = df.pivot(index="entity", columns="date", values=column)
+        jk = list(df.columns.intersection(["entity_id", "entity", "entity_parent"]).values)
+        dfsrc = df.pivot_table(index=jk, columns="date", values=column)
         dfdest = pd.DataFrame(index=dfsrc.index, columns=dfsrc.columns, data=0.0)
 
         # kernel operation
-        # FIXME cache each *date* shift
+        # FIXME cache each *date* shift would allow gaps in data
         colcache = {}
         for icol, col in enumerate(dfsrc):
             colcache[icol] = dfsrc.iloc[:, icol].to_numpy()
@@ -269,7 +268,7 @@ class UnifiedDataModel:
             dfdest.iloc[:, icol] = operation((colcache[icol - dc] * p for dc, p in kernel[:] if dc <= icol), axis=1)
 
         # unpivot
-        updated = dfdest.reset_index().rename(columns={"index": "entity"}).melt(id_vars="entity", value_name="__newcol")
-        # merge on source index
-        extended = left_join_on(df, updated, ["entity", "date"])
+        updated = dfdest.reset_index().melt(id_vars=jk, value_name="__newcol")
+        # merge onto source index
+        extended = left_join_on(df, updated, jk + ["date"])
         return extended["__newcol"]

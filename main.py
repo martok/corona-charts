@@ -129,7 +129,6 @@ def plot_dataframe(axs, df: pd.DataFrame, x: Optional = None, y: Optional[Iterab
 
 
 def removed_estimate(df: pd.DataFrame):
-    df = df.copy()
     # probabilistic odds model according to https://twitter.com/HerrNaumann/status/1242087556898009089
     # ratios from RKI
     # hospitalization ratio fromm NYC DoH
@@ -161,7 +160,7 @@ def extend_data(df: pd.DataFrame):
 
     df["infected"] = UnifiedDataModel.date_shifted_by(df, "confirmed", - V.inf_to_test)
     df["removed_shift"] = UnifiedDataModel.date_shifted_by(df, "confirmed", V.inf_to_recov - V.inf_to_test).fillna(0)
-    df["removed"] = removed_estimate(df[["entity", "date", "confirmed"]])
+    df["removed"] = removed_estimate(df[["entity_id", "date", "confirmed"]])
 
     df["recovered"] = df["removed"] - df["deaths"]
     df.loc[df["recovered"] < 0, "recovered"] = 0
