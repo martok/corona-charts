@@ -128,6 +128,15 @@ def plot_dataframe(axs, df: pd.DataFrame, x: Optional = None, y: Optional[Iterab
     axs.legend()
 
 
+def add_dateanno(axs):
+    axs.axvline(pd.to_datetime("2020-03-12"), zorder=0, label="_Halle Schulschließung")
+    axs.axvline(pd.to_datetime("2020-03-16"), zorder=0, label="_Bund 1")
+    axs.axvline(pd.to_datetime("2020-03-23"), zorder=0, label="_Bund 2 Kontaktverbot")
+    axs.axvline(pd.to_datetime("2020-04-06"), zorder=0, label="_Jena Maskenpflicht")
+    axs.axvline(pd.to_datetime("2020-04-23"), zorder=0, label="_Maskenpflicht Bund")
+    axs.axvline(pd.to_datetime("2020-05-04"), zorder=0, label="_Lockerungen")
+
+
 def infected_estimate(df: pd.DataFrame):
     # https://twitter.com/pavel23/status/1256398817404092416
     # "Erkrankungsdatum" = onset of symptoms
@@ -219,7 +228,10 @@ class mopodata:
 
         def pivoted(entity, datacol, worst_only=None):
             roi = region_data(below=entity)
-            roi["new_confirmed"] = (roi["confirmed"] - UnifiedDataModel.date_shifted_by(roi, "confirmed", days(2))) / 2
+            def ds(c, d):
+                return UnifiedDataModel.date_shifted_by(roi, c, days(d))
+            roi["new_confirmed"] = (ds("confirmed", -1) - ds("confirmed", 1)) / 2
+            roi["new_infected"] = (ds("infected", -1) - ds("infected", 1)) / 2
             piv = roi.pivot(index="date", columns="entity", values=datacol)
             if worst_only is not None:
                 last_nonempty = piv[~piv.isnull().all(axis=1)].tail(1)
@@ -251,9 +263,11 @@ class mopodata:
         entity_report("Sachsen-Anhalt", "lsa")
         entity_report("Jena", "jena")
 
+        kreise_plot("Sachsen-Anhalt", "lsa")
         kreise_plot("Sachsen-Anhalt", "lsa", field="active")
         kreise_plot("Thüringen", "th")
         kreise_plot("Deutschland", "de", field="new_confirmed", maxn=20, stack=True)
+        kreise_plot("Deutschland", "de", field="new_infected", maxn=20, stack=True)
 
 
 class jhudata:
