@@ -16,7 +16,7 @@ import plotkit.plotkit as pk
 import matplotlib.dates as mdates
 from tqdm import tqdm
 
-from corona.datasource import left_join_on, UnifiedDataModel
+from corona.datasource import UnifiedDataModel
 
 pd.set_option("display.max_rows", 500)
 pd.set_option("display.max_columns", 500)
@@ -82,7 +82,7 @@ def alpha_to_Rt(alpha):
 
 
 def roundnext(v):
-    m = np.nanmax(v)
+    m = np.max(v[np.isfinite(v)])
     for e in reversed(range(3, 6)):
         f = 10 ** e
         if m > 0.5 * f:
@@ -128,25 +128,41 @@ def plot_dataframe(axs, df: pd.DataFrame, x: Optional = None, y: Optional[Iterab
     axs.legend()
 
 
+def infected_estimate(df: pd.DataFrame):
+    # https://twitter.com/pavel23/status/1256398817404092416
+    # "Erkrankungsdatum" = onset of symptoms
+    symp_to_test = np.array([
+        (0, 0.04),
+        (-1, 0.12),
+        (-2, 0.17),
+        (-3, 0.15),
+        (-4, 0.13),
+        (-5, 0.10),
+        (-6, 0.08),
+        (-7, 0.07),
+        (-8, 0.04),
+        (-9, 0.03),
+        (-10, 0.02),
+        (-11, 0.01),
+        (-12, 0.01),
+    ])
+    inf_to_test = UnifiedDataModel.kernel_norm(symp_to_test - np.array([days(V.inf_to_sympt), 0]))
+    return UnifiedDataModel.date_shifted_kernel(df, "confirmed", inf_to_test)
+
+
 def removed_estimate(df: pd.DataFrame):
     # probabilistic odds model according to https://twitter.com/HerrNaumann/status/1242087556898009089
     # ratios from RKI
     # hospitalization ratio fromm NYC DoH
 
-    rem_after_inf = [
+    rem_after_inf = np.array([
         (14, 0.70),                         # at home
         (23, 0.30 * 0.75),                  # hospitalized, no ICU
         (20, 0.30 * 0.25 * 0.5),            # hospitalized, ICU, recovery
         (20, 0.30 * 0.25 * 0.5),            # hospitalized, ICU, death
-    ]
+    ])
     # shift to after confirmation and apply some peak broadening
-    rem_after_test = []
-    for d, p in rem_after_inf:
-        d -= days(V.inf_to_test)
-        rem_after_test.append((d - 1, p * 0.25))
-        rem_after_test.append((d, p * 0.50))
-        rem_after_test.append((d + 1, p * 0.25))
-    rem_after_test = np.array(rem_after_test)
+    rem_after_test = UnifiedDataModel.kernel_broaden(rem_after_inf - np.array([days(V.inf_to_test), 0]))
 
     return UnifiedDataModel.date_shifted_kernel(df, "confirmed", rem_after_test)
 
