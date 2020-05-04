@@ -242,21 +242,36 @@ class UnifiedDataModel:
         return joined[column + "_2"]
 
     @staticmethod
-    def date_shifted_kernel(df: pd.DataFrame, column: str, kernel: np.ndarray, *,
-                            operation: Callable = np.sum):
-        # simplify kernel
+    def kernel_broaden(kernel: np.ndarray) -> np.ndarray:
+        br = np.empty((3 * kernel.shape[0], kernel.shape[1]))
+        br[::3, :] = (kernel + np.array([-1, 0])) * np.array([1.0, 0.25])
+        br[1::3, :] = (kernel + np.array([0, 0])) * np.array([1.0, 0.50])
+        br[2::3, :] = (kernel + np.array([1, 0])) * np.array([1.0, 0.25])
+        return br
+
+    @staticmethod
+    def kernel_norm(kernel: np.ndarray) -> np.ndarray:
+        return kernel / np.array([1.0, kernel[:, 1].sum()])
+
+    @staticmethod
+    def kernel_simplify(kernel: np.ndarray) -> np.ndarray:
         kerndict = {}
         for d, w in zip(kernel[:, 0], kernel[:, 1]):
             d = round(d)
             kerndict[d] = w + kerndict.setdefault(d, 0.0)
-        kernel = np.array(list(sorted(kerndict.items())))
-        left_offset = kernel[:, 0].min()
-        right_offset = kernel[:, 0].max()
+        return np.array(list(sorted(kerndict.items())))
+
+    @staticmethod
+    def date_shifted_kernel(df: pd.DataFrame, column: str, kernel: np.ndarray, *,
+                            operation: Callable = np.sum) -> pd.Series:
+        kernel = UnifiedDataModel.kernel_simplify(kernel)
+        left_offset = round(kernel[:, 0].max())
+        right_offset = round(kernel[:, 0].min())
 
         # pivot source and dest, keeping columns needed to recover index later
         jk = list(df.columns.intersection(["entity_id", "entity", "entity_parent"]).values)
         dfsrc = df.pivot_table(index=jk, columns="date", values=column)
-        dfdest = pd.DataFrame(index=dfsrc.index, columns=dfsrc.columns, data=0.0)
+        dfdest = pd.DataFrame(index=dfsrc.index, columns=dfsrc.columns, data=np.nan)
 
         # kernel operation
         # FIXME cache each *date* shift would allow gaps in data
@@ -265,7 +280,10 @@ class UnifiedDataModel:
             colcache[icol] = dfsrc.iloc[:, icol].to_numpy()
         # do one column at a time, assume every date is without gaps and in order
         for icol, col in enumerate(dfsrc):
-            dfdest.iloc[:, icol] = operation((colcache[icol - dc] * p for dc, p in kernel[:] if dc <= icol), axis=1)
+            if icol - right_offset >= len(dfsrc.columns):
+                break
+            sgen = (colcache[icol - dc] * p for dc, p in kernel[:] if 0 <= icol - dc < len(dfsrc.columns))
+            dfdest.iloc[:, icol] = operation(sgen, axis=1)
 
         # unpivot
         updated = dfdest.reset_index().melt(id_vars=jk, value_name="__newcol")
