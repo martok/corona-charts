@@ -126,6 +126,13 @@ def left_join_on(left: pd.DataFrame, right: pd.DataFrame, on):
     return aligned
 
 
+def pivot_on(df: pd.DataFrame, on, column_by, values):
+    # pivot (and pivot_table) drop any row where any index column is nan
+    if not isinstance(on, list):
+        on = [on]
+    return df.set_index(on + [column_by])[[values]].unstack(column_by).droplevel(0, axis=1)
+
+
 class UnifiedDataModel:
     series: pd.DataFrame
     """
@@ -230,11 +237,13 @@ class UnifiedDataModel:
                               "display": geo_g["label_parent"].fillna("") + "/" + geo_g["label"].fillna("")})
         return UnifiedDataModel(ser, geo)
 
+    # Shifting Methods
+    # "How did this value look like, `by` days ago
+    # Depending on the data and method, `by` can be negative to look into the future
+    # If no data is available, return nan (never errors)
+
     @staticmethod
     def date_shifted_by(df: pd.DataFrame, column: str, by):
-        """
-        :param by: shift amount, negative: take value from future
-        """
         jk: pd.Index = df.columns.intersection(["entity_id", "entity", "entity_parent", "date"])
         moved = df.copy()
         moved["date"] = moved["date"] + by
@@ -265,12 +274,12 @@ class UnifiedDataModel:
     def date_shifted_kernel(df: pd.DataFrame, column: str, kernel: np.ndarray, *,
                             operation: Callable = np.sum) -> pd.Series:
         kernel = UnifiedDataModel.kernel_simplify(kernel)
-        left_offset = round(kernel[:, 0].max())
-        right_offset = round(kernel[:, 0].min())
+        back_offset = round(kernel[:, 0].max())
+        forward_offset = round(kernel[:, 0].min())
 
         # pivot source and dest, keeping columns needed to recover index later
         jk = list(df.columns.intersection(["entity_id", "entity", "entity_parent"]).values)
-        dfsrc = df.pivot_table(index=jk, columns="date", values=column)
+        dfsrc = pivot_on(df, jk, "date", column)
         dfdest = pd.DataFrame(index=dfsrc.index, columns=dfsrc.columns, data=np.nan)
 
         # kernel operation
@@ -279,11 +288,16 @@ class UnifiedDataModel:
         for icol, col in enumerate(dfsrc):
             colcache[icol] = dfsrc.iloc[:, icol].to_numpy()
         # do one column at a time, assume every date is without gaps and in order
+        # at date icol put: what did the value look like, by operation(icol-by for by)
         for icol, col in enumerate(dfsrc):
-            if icol - right_offset >= len(dfsrc.columns):
-                break
-            sgen = (colcache[icol - dc] * p for dc, p in kernel[:] if 0 <= icol - dc < len(dfsrc.columns))
-            dfdest.iloc[:, icol] = operation(sgen, axis=1)
+            take = [(int(icol - by), p) for by, p in kernel[:] if 0 <= icol - by < len(dfsrc.columns)]
+            vgen = (colcache[bcol] * p for bcol, p in take)
+            psum = sum(p for bcol, p in take)
+            if len(take) and psum > 0:
+                # if the kernel is only partially covered, extrapolate from fraction
+                dfdest.iloc[:, icol] = operation(vgen, axis=1) / psum
+            else:
+                dfdest.iloc[:, icol] = np.nan
 
         # unpivot
         updated = dfdest.reset_index().melt(id_vars=jk, value_name="__newcol")

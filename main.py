@@ -41,6 +41,10 @@ class V:
     spread_start = days(3)
     generation_period = inf_to_test - spread_start
 
+    # filled in later
+    inf_to_test_kernel: np.ndarray
+    rem_after_test_kernel: np.ndarray
+
 
 # plotting parameters
 alpha_rows = 4
@@ -140,22 +144,24 @@ def add_dateanno(axs):
 def infected_estimate(df: pd.DataFrame):
     # https://twitter.com/pavel23/status/1256398817404092416
     # "Erkrankungsdatum" = onset of symptoms
-    symp_to_test = np.array([
+    reporting_delay = np.array([
         (0, 0.04),
-        (-1, 0.12),
-        (-2, 0.17),
-        (-3, 0.15),
-        (-4, 0.13),
-        (-5, 0.10),
-        (-6, 0.08),
-        (-7, 0.07),
-        (-8, 0.04),
-        (-9, 0.03),
-        (-10, 0.02),
-        (-11, 0.01),
-        (-12, 0.01),
+        (1, 0.12),
+        (2, 0.17),
+        (3, 0.15),
+        (4, 0.13),
+        (5, 0.10),
+        (6, 0.08),
+        (7, 0.07),
+        (8, 0.04),
+        (9, 0.03),
+        (10, 0.02),
+        (11, 0.01),
+        (12, 0.01),
     ])
-    inf_to_test = UnifiedDataModel.kernel_norm(symp_to_test - np.array([days(V.inf_to_sympt), 0]))
+    test_to_inf = reporting_delay + np.array([days(V.inf_to_sympt), 0])
+    inf_to_test = UnifiedDataModel.kernel_norm(test_to_inf * np.array([-1, 1]))
+    V.inf_to_test_kernel = inf_to_test
     return UnifiedDataModel.date_shifted_kernel(df, "confirmed", inf_to_test)
 
 
@@ -173,6 +179,7 @@ def removed_estimate(df: pd.DataFrame):
     # shift to after confirmation and apply some peak broadening
     rem_after_test = UnifiedDataModel.kernel_broaden(rem_after_inf - np.array([days(V.inf_to_test), 0]))
 
+    V.rem_after_test_kernel = rem_after_test
     return UnifiedDataModel.date_shifted_kernel(df, "confirmed", rem_after_test)
 
 
@@ -183,7 +190,7 @@ def extend_data(df: pd.DataFrame):
     #   R - removed/recovered, maximum I after longest possible time
     # active = I - R
 
-    df["infected"] = UnifiedDataModel.date_shifted_by(df, "confirmed", - V.inf_to_test)
+    df["infected"] = infected_estimate(df)
     df["removed_shift"] = UnifiedDataModel.date_shifted_by(df, "confirmed", V.inf_to_recov - V.inf_to_test).fillna(0)
     df["removed"] = removed_estimate(df[["entity_id", "date", "confirmed"]])
 
@@ -432,6 +439,25 @@ class jhudata:
         pk.finalize(fig, f"trajectory.png")
 
 
+def text_figures():
+    #
+    fig, axs = pk.new_mm(figsize=(80, 50))
+    axs.bar(-V.inf_to_test_kernel[:, 0], V.inf_to_test_kernel[:, 1])
+    pk.set_grid(axs)
+    axs.set_xlim(0)
+    axs.set_xlabel("Days after Infection")
+    axs.set_ylabel("Probability")
+    pk.finalize(fig, f"fig_infected_kernel.png")
+
+    fig, axs = pk.new_mm(figsize=(80, 50))
+    axs.bar(-V.inf_to_test_kernel[:, 0], V.inf_to_test_kernel[:, 1].cumsum())
+    pk.set_grid(axs)
+    axs.set_xlim(0)
+    axs.set_xlabel("Days after Infection")
+    axs.set_ylabel("Cum. Probability")
+    pk.finalize(fig, f"fig_infected_kernel_cum.png")
+
+
 def publish():
     import corona.__config__ as c
     if not c.publish_enabled:
@@ -468,6 +494,7 @@ tasks = [
     jhudata.plot_percountry,
     jhudata.plot_affected,
     jhudata.plot_trajectory,
+    text_figures,
     publish,
 ]
 
