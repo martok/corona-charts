@@ -6,35 +6,6 @@ Data processing is subject to change without notice at any time, for any reason.
 
 ## Charts
 
-These plots use a date-correction method to get true infected cases at a specific date. This is neccessary because
-a person entering the record as confirmed was actually infected (and infectious) a few days prior, taking incubation
-period and reporting delays into account. For this reason, using confirmed at one day will always underestimate the
-true number of infected. To compensate for this, a model is used based on the kernel proposed by [Pavel Mayer][Pavel1].
-Specifically, it is assumed that an infection is confirmed `x` days later, with probability `p`:
-
-In the last few days, the total amount of incoming reports for a date is not yet known. In this case, partial results are
-approximated based on the probability that *is* available. Since most reports are not extremely delayed, this is accurate
-for all but the last few days.
-
-![Delay Infection to Confirmation](fig_infected_kernel.png)
-![Probability sum over days](fig_infected_kernel_cum.png)
-
-Recovered cases are not consistently reported at all, and there are large differences between countries.
-Therefore, recoveries need to be modelled.
-First, removed cases (in the [SIR model][SIR] sense of the word) are estimated from a multi-step probabilistic model
-based on possible patient histories.
-This number is related to the number of confirmed deaths to find recoveries as $recovered = removed - deaths$.
-See function `removed_estimate` for details of the model, including parameters.
-
-Active cases are calculated from these values as $active = infected - recovered - deaths$.
-
-The specific constants can be found in [`class V`][github_V].
-
-[Pavel1]: https://twitter.com/pavel23/status/1256398817404092416
-[SIR]: https://en.wikipedia.org/wiki/Compartmental_models_in_epidemiology
-[github_V]: https://github.com/martok/corona-charts/blob/master/main.py#L36
-
-
 ### Global Overview
 ![Active Cases](countries_active.png)
 
@@ -104,6 +75,36 @@ $${\Delta}I_t = \frac{I_{t+1}-I_{t-1}}{2}$$
 
 ### Miscellaneuos
 ![Estimate of CFR steady state](estimated_cfr.png)
+
+## Details
+
+These plots use a date-correction method to get true infected cases at a specific date. This is neccessary because
+a person entering the record as confirmed was actually infected (and infectious) a few days prior, taking incubation
+period and reporting delays into account. For this reason, using confirmed at one day will always underestimate the
+true number of infected. To compensate for this, a model is used based on the kernel proposed by [Pavel Mayer][Pavel1].
+Specifically, it is assumed that an infection is confirmed `x` days later, with probability `p`:
+
+In the last few days, the total amount of incoming reports for a date is not yet known. In this case, partial results are
+approximated based on the probability that *is* available (i.e. if 40% is known, assume true value is 1/0.4 times higher).
+Since most reports are not extremely delayed, this is fairly accurate up until about a week before present.
+
+![Delay Infection to Confirmation](fig_infected_kernel.png)
+![Probability sum over days](fig_infected_kernel_cum.png)
+
+Recovered cases are not consistently reported at all, and there are large differences between countries.
+Therefore, recoveries need to be modelled.
+First, removed cases (in the [SIR model][SIR] sense of the word) are estimated from a multi-step probabilistic model
+based on possible patient histories.
+This number is related to the number of confirmed deaths to find recoveries as $recovered = removed - deaths$.
+See function `removed_estimate` for details of the model, including parameters.
+
+Active cases are calculated from these values as $active = infected - recovered - deaths$.
+
+The specific constants can be found in [`class V`][github_V].
+
+[Pavel1]: https://twitter.com/pavel23/status/1256398817404092416
+[SIR]: https://en.wikipedia.org/wiki/Compartmental_models_in_epidemiology
+[github_V]: https://github.com/martok/corona-charts/blob/master/main.py#L36
 
 ## Data Sources
 
