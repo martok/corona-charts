@@ -50,6 +50,8 @@ class V:
 alpha_rows = 4
 chart_show_most_affected = 10
 chart_show_countries = ["Germany", "Italy", "France", "Spain", "United Kingdom", "US", "Korea, South", "China"]
+chart_trajectory_countries = ["Germany", "Italy", "France", "Spain", "United Kingdom", "US", "Korea, South", "China",
+                              "Russia", "Sweden"]
 # chart_show_countries = None
 chart_min_pop = 100
 chart_min_deaths = 10
@@ -418,7 +420,7 @@ class jhudata:
     def plot_trajectory(cls):
         # see: https://aatishb.com/covidtrends/
         df = cls.data
-        sel_countries = cls.select_plot_countries(df)
+        sel_countries = chart_trajectory_countries
         aff = df[df["entity"].isin(sel_countries) & (df["confirmed"] > chart_min_pop)]
         traj = aff[["entity", "date", "confirmed"]].copy()
         traj["increase"] = aff["confirmed"] - UnifiedDataModel.date_shifted_by(aff, "confirmed", days(7)).fillna(0)
