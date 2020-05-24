@@ -235,7 +235,7 @@ class mopodata:
             extend_data(df)
             return df
 
-        def pivoted(entity, datacol, worst_only=None):
+        def pivoted(entity, datacol, worst_only=None, order_total=False):
             roi = region_data(below=entity)
             def ds(c, d):
                 return UnifiedDataModel.date_shifted_by(roi, c, days(d))
@@ -246,6 +246,10 @@ class mopodata:
                 last_nonempty = piv[~piv.isnull().all(axis=1)].tail(1)
                 worst = last_nonempty.melt().nlargest(worst_only, columns="value")
                 piv = piv[worst["entity"].sort_values()]
+            if order_total:
+                ordersum: pd.Series = piv.sum(axis=0, skipna=True)
+                ordered_columns = ordersum.sort_values(ascending=order_total > 0).keys().to_list()
+                piv = piv[ordered_columns]
             piv.last_modified = roi["updated"].max()
             return piv
 
@@ -255,10 +259,11 @@ class mopodata:
             reg = reg[["date", "dow", "confirmed", "recovered", "deaths", "active", "perday", "infected", "doubling"]]
             print(reg, file=open(f"report.{short}.txt", "wt"))
 
-        def kreise_plot(entity_parent, short, *, field="confirmed", maxn: Optional[int] = 10, stack=False):
+        def kreise_plot(entity_parent, short, *, field="confirmed", maxn: Optional[int] = 10, stack=False,
+                        order_total: Union[bool, int] = False):
             import matplotlib as mpl
             fig, axs = pk.new_regular()
-            pv = pivoted(entity_parent, field, maxn)
+            pv = pivoted(entity_parent, field, maxn, order_total)
             axs.set_prop_cycle(mpl.rcsetup.cycler("linestyle", ["-", "-.", "--"]) * mpl.rcParams["axes.prop_cycle"])
             plot_dataframe(axs, pv, stacked=stack)
             axs.set_ylabel(field)
@@ -275,8 +280,8 @@ class mopodata:
         kreise_plot("Sachsen-Anhalt", "lsa")
         kreise_plot("Sachsen-Anhalt", "lsa", field="active")
         kreise_plot("Thüringen", "th")
-        kreise_plot("Deutschland", "de", field="new_confirmed", maxn=20, stack=True)
-        kreise_plot("Deutschland", "de", field="new_infected", maxn=20, stack=True)
+        kreise_plot("Deutschland", "de", field="new_confirmed", maxn=20, stack=True, order_total=-1)
+        kreise_plot("Deutschland", "de", field="new_infected", maxn=20, stack=True, order_total=-1)
 
 
 class jhudata:
