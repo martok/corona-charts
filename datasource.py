@@ -61,7 +61,7 @@ def get_history_df() -> DataFrame:
          17  scraper          19783 non-null  object
     """
     f = update_cache("https://funkeinteraktiv.b-cdn.net/history.v4.csv")
-    df: DataFrame = pd.read_csv(f, parse_dates=["date"])
+    df: DataFrame = pd.read_csv(f, parse_dates=["date"], dtype={"levels": object})
     df["updated"] = pd.to_datetime(df["updated"], unit="ms")
     df["retrieved"] = pd.to_datetime(df["retrieved"], unit="ms")
     return df
