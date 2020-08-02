@@ -51,7 +51,7 @@ alpha_rows = 4
 chart_show_most_affected = 10
 chart_show_countries = ["Germany", "Italy", "France", "Spain", "United Kingdom", "US", "Korea, South", "China"]
 chart_trajectory_countries = ["Germany", "Italy", "France", "Spain", "United Kingdom", "US", "Korea, South", "China",
-                              "Russia", "Sweden"]
+                              "Russia", "Sweden", "India", "Brazil"]
 # chart_show_countries = None
 chart_min_pop = 100
 chart_min_deaths = 10
@@ -141,6 +141,11 @@ def add_dateanno(axs):
     axs.axvline(pd.to_datetime("2020-04-06"), zorder=0, label="_Jena Maskenpflicht")
     axs.axvline(pd.to_datetime("2020-04-23"), zorder=0, label="_Maskenpflicht Bund")
     axs.axvline(pd.to_datetime("2020-05-04"), zorder=0, label="_Lockerungen")
+
+
+def more_cyclers(axs):
+    import matplotlib as mpl
+    axs.set_prop_cycle(mpl.rcsetup.cycler("linestyle", ["-", "-.", "--"]) * mpl.rcParams["axes.prop_cycle"])
 
 
 def infected_estimate(df: pd.DataFrame):
@@ -261,10 +266,9 @@ class mopodata:
 
         def kreise_plot(entity_parent, short, *, field="confirmed", maxn: Optional[int] = 10, stack=False,
                         order_total: Union[bool, int] = False):
-            import matplotlib as mpl
             fig, axs = pk.new_regular()
+            more_cyclers(axs)
             pv = pivoted(entity_parent, field, maxn, order_total)
-            axs.set_prop_cycle(mpl.rcsetup.cycler("linestyle", ["-", "-.", "--"]) * mpl.rcParams["axes.prop_cycle"])
             plot_dataframe(axs, pv, stacked=stack)
             axs.set_ylabel(field)
             axs.annotate("Last data update: " + str(pv.last_modified), xy=(0.5, 0), xycoords="figure fraction",
@@ -430,7 +434,9 @@ class jhudata:
         traj = aff[["entity", "date", "confirmed"]].copy()
         traj["increase"] = aff["confirmed"] - UnifiedDataModel.date_shifted_by(aff, "confirmed", days(7)).fillna(0)
         fig, axs = pk.new_regular()
-        for c in sel_countries:
+        more_cyclers(axs)
+        sel_countries_sorted = list(sorted(sel_countries, key=lambda c: traj[traj["entity"] == c]["increase"].max(), reverse=True))
+        for c in sel_countries_sorted:
             cdata = traj[traj["entity"] == c]
             xydata = cdata[["confirmed", "increase"]].sort_values(by="confirmed").to_numpy()
             p = axs.plot(*xydata.T, label=c)
