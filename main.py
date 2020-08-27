@@ -102,11 +102,18 @@ def join_on(df1: pd.DataFrame, df2: pd.DataFrame, keys: Sequence, **kwargs) -> p
     return pd.merge(df1, df2, left_on=rkey1, right_on=rkey2, **kwargs)
 
 
+class FirstWeekOfMonthDateFormatter(mdates.DateFormatter):
+    def __call__(self, x, pos=0):
+        dt: datetime = mdates.num2date(x, self.tz)
+        if dt.day >= 7:
+            return ""
+        return dt.strftime(self.fmt)
+
 def set_dateaxis(axs):
     axs.margins(x=0)
     axs.xaxis.set_major_locator(mdates.WeekdayLocator(mdates.MO))
     axs.xaxis.set_minor_locator(mdates.DayLocator())
-    axs.xaxis.set_major_formatter(mdates.DateFormatter('%b %d'))
+    axs.xaxis.set_major_formatter(FirstWeekOfMonthDateFormatter('%b %d'))
 
 
 def plot_dataframe(axs, df: pd.DataFrame, x: Optional = None, y: Optional[Iterable] = None,
