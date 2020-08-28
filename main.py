@@ -1,6 +1,7 @@
 import os
 import subprocess
 import sys
+from datetime import datetime
 from itertools import islice
 
 from more_itertools import padnone
@@ -108,6 +109,7 @@ class FirstWeekOfMonthDateFormatter(mdates.DateFormatter):
         if dt.day >= 7:
             return ""
         return dt.strftime(self.fmt)
+
 
 def set_dateaxis(axs):
     axs.margins(x=0)
