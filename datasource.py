@@ -97,7 +97,7 @@ def get_jhu_df() -> DataFrame:
     df_c = make("time_series_covid19_confirmed_global.csv", "confirmed")
     df_d = make("time_series_covid19_deaths_global.csv", "deaths")
     df_r = make("time_series_covid19_recovered_global.csv", "recovered")
-    df = df_c.merge(df_d).merge(df_r)
+    df = df_c.merge(df_d, how="left").merge(df_r, how="left")
     return df
 
 
