@@ -4,6 +4,7 @@ import sys
 from datetime import datetime
 from itertools import islice
 
+import cycler
 from more_itertools import padnone
 
 sys.path.append(os.path.dirname(__file__) + '/..')
@@ -14,6 +15,7 @@ from typing import Union, Sequence, Callable, Tuple, Optional, Iterable
 import numpy as np
 import pandas as pd
 import plotkit.plotkit as pk
+import matplotlib as mpl
 import matplotlib.dates as mdates
 from tqdm import tqdm
 
@@ -119,7 +121,7 @@ def set_dateaxis(axs):
 
 
 def plot_dataframe(axs, df: pd.DataFrame, x: Optional = None, y: Optional[Iterable] = None,
-                   style: Optional[Iterable] = None, stacked=False):
+                   style: Optional[Iterable] = None, stacked=False, kind="line"):
     # for some reason df.plot() completely ruins datetime xaxis so no other formatter works
     # reinvent the wheel...
     if x is None:
@@ -135,11 +137,23 @@ def plot_dataframe(axs, df: pd.DataFrame, x: Optional = None, y: Optional[Iterab
     if style is None:
         style = []
     if stacked:
+        yvals_original = yvals.copy()
         yvals = yvals.cumsum(axis=1)
+    if kind == "bar":
+        styler = iter(cycler.cycler(hatch=[None, "///", "..."]) * mpl.rcParams["axes.prop_cycle"])
     cols = yvals.columns
     styletup = [(st,) if st else () for st in islice(padnone(iter(style)), len(cols))]
     for st, ci in zip(styletup, cols):
-        axs.plot(xvals, yvals[ci], *st, label=ci)
+        if kind == "line":
+            axs.plot(xvals, yvals[ci], *st, label=ci)
+        elif kind == "bar":
+            if stacked:
+                bot = (yvals[ci] - yvals_original[ci]).to_numpy()
+                bot[np.isnan(bot)] = 0.0
+                what = dict(height=yvals_original[ci], bottom=bot)
+            else:
+                what = dict(height=yvals[ci])
+            axs.bar(xvals, **what, linewidth=0, width=-1.0, align="edge", **next(styler), label=ci)
     axs.legend()
 
 
@@ -153,7 +167,6 @@ def add_dateanno(axs):
 
 
 def more_cyclers(axs):
-    import matplotlib as mpl
     axs.set_prop_cycle(mpl.rcsetup.cycler("linestyle", ["-", "-.", "--"]) * mpl.rcParams["axes.prop_cycle"])
 
 
@@ -278,7 +291,7 @@ class mopodata:
             fig, axs = pk.new_regular()
             more_cyclers(axs)
             pv = pivoted(entity_parent, field, maxn, order_total)
-            plot_dataframe(axs, pv, stacked=stack)
+            plot_dataframe(axs, pv, stacked=stack, kind="bar" if stack else "line")
             axs.set_ylabel(field)
             axs.annotate("Last data update: " + str(pv.last_modified), xy=(0.5, 0), xycoords="figure fraction",
                          ha="center", va="bottom")
@@ -292,6 +305,7 @@ class mopodata:
 
         kreise_plot("Sachsen-Anhalt", "lsa")
         kreise_plot("Sachsen-Anhalt", "lsa", field="active")
+        kreise_plot("Sachsen-Anhalt", "lsa", field="new_confirmed", maxn=20, stack=True, order_total=-1)
         kreise_plot("Thüringen", "th")
         kreise_plot("Deutschland", "de", field="new_confirmed", maxn=20, stack=True, order_total=-1)
         kreise_plot("Deutschland", "de", field="new_infected", maxn=20, stack=True, order_total=-1)
