@@ -108,7 +108,7 @@ def join_on(df1: pd.DataFrame, df2: pd.DataFrame, keys: Sequence, **kwargs) -> p
 class FirstWeekOfMonthDateFormatter(mdates.DateFormatter):
     def __call__(self, x, pos=0):
         dt: datetime = mdates.num2date(x, self.tz)
-        if dt.day >= 7:
+        if dt.day > 7:
             return ""
         return dt.strftime(self.fmt)
 
