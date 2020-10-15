@@ -388,6 +388,7 @@ class jhudata:
             plotpart("perday", f"Change per day, {alpha_rows}-day average:", "Change per day", ylim=(0.5, 2))
             plotpart("Rt", f"$R_t$ calculated from {alpha_rows}-day average", "$R_t$", ylim=(0.5, 6))
             plotpart("doubling", "Days to double", "$T_{double}$ / days", yscale="log")
+            # FIXME CFR funktioniert nicht, NaN für viele Ländern?????
             plotpart("CFR", "Case fatality rate", "CFR / %", ylim=(0,))
 
     @classmethod
