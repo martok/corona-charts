@@ -24,9 +24,13 @@ def download_with_progress(url, filename):
             fp.write(chunk)
 
 
+def get_work_file(afile: str):
+    return os.path.join(os.path.dirname(__file__), afile)
+
+
 def update_cache(url, local=None, lifetime=3 * 3600):
     if local is None:
-        local = os.path.join(os.path.dirname(__file__), os.path.basename(url))
+        local = get_work_file(os.path.basename(url))
     try:
         last = os.path.getmtime(local)
     except OSError:
