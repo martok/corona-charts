@@ -119,6 +119,9 @@ The specific constants can be found in [`class V`][github_V].
 
 * Novel Coronavirus (COVID-19) Cases, provided by JHU CSSE [repository](https://github.com/CSSEGISandData/COVID-19/tree/master/csse_covid_19_data/csse_covid_19_time_series)
 * Coronavirus Monitor Berliner Morgenpost [Vis](https://interaktiv.morgenpost.de/corona-virus-karte-infektionen-deutschland-weltweit/)
+  - Note: historic data publishing was shut down 2020-10-18, a replacment data aggregation service is in place since 2020-11-06.
+  - Data inbetween these two dates is interpolated with additional points on 2020-10-20 and 2020-10-21.
+  - This causes some issues with the distribution of derivative quantities (e.g. new_confirmed), but any integral and averaged values can be assumed to be correct.
 
 ## Meta
 
