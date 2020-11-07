@@ -1,44 +1,14 @@
 import os
 from collections import Iterable
-from datetime import datetime
 from typing import Callable
 
 import numpy as np
 import pandas as pd
-import requests
-import tqdm
 from pandas import DataFrame
 
+from .urlhelp import CachedDownloader
 
-def download_with_progress(url, filename):
-    chunk_size = 1024
-    r = requests.get(url, stream=True)
-    file_size = int(r.headers.get("Content-Length", -1))
-    if file_size < 0:
-        num_bars = None
-    else:
-        num_bars = int(file_size / chunk_size)
-    with open(filename, "wb") as fp:
-        for chunk in tqdm.tqdm(r.iter_content(chunk_size), total=num_bars, unit="KB",
-                               desc=os.path.basename(filename), leave=True):  # progressbar stays
-            fp.write(chunk)
-
-
-def get_work_file(afile: str):
-    return os.path.join(os.path.dirname(__file__), afile)
-
-
-def update_cache(url, local=None, lifetime=3 * 3600):
-    if local is None:
-        local = get_work_file(os.path.basename(url))
-    try:
-        last = os.path.getmtime(local)
-    except OSError:
-        last = -1
-    now = int(datetime.now().timestamp())
-    if last < now - lifetime:
-        download_with_progress(url, local)
-    return local
+cached_dl = CachedDownloader(os.path.dirname(__file__))
 
 
 def get_history_df() -> DataFrame:
@@ -64,7 +34,7 @@ def get_history_df() -> DataFrame:
          16  source_url       19740 non-null  object
          17  scraper          19783 non-null  object
     """
-    f = update_cache("https://funkeinteraktiv.b-cdn.net/history.v4.csv")
+    f = cached_dl.update_cache("https://funkeinteraktiv.b-cdn.net/history.v4.csv")
     df: DataFrame = pd.read_csv(f, parse_dates=["date"], dtype={"levels": object})
     df["updated"] = pd.to_datetime(df["updated"], unit="ms")
     df["retrieved"] = pd.to_datetime(df["retrieved"], unit="ms")
@@ -93,7 +63,7 @@ def get_jhu_df() -> DataFrame:
     """
 
     def make(fname, col):
-        csv = update_cache(where + fname)
+        csv = cached_dl.update_cache(where + fname)
         df = pd.read_csv(csv)
         return reformat_jhu(df, col)
 
