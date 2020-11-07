@@ -291,10 +291,9 @@ class UnifiedDataModel:
         # interpolate gaps, constant-extend the rest
         blockkeys = gapset["entity_id"].unique()
         filled = gapset.copy()
-        for k in blockkeys:
-            block = filled["entity_id"] == k
-            # filled = gapset.fillna(method="ffill")
-            filled[block] = gapset[block].interpolate(method="akima").fillna(method="ffill")
+        for block in blockkeys:
+            mask = filled["entity_id"] == block
+            filled[mask] = gapset[mask].interpolate(method="akima").fillna(method="ffill")
         return filled
 
     # Shifting Methods
