@@ -268,6 +268,7 @@ class mopodata:
                 return UnifiedDataModel.date_shifted_by(roi, c, days(d))
             roi["new_confirmed"] = (ds("confirmed", -1) - ds("confirmed", 1)) / 2
             roi["new_infected"] = (ds("infected", -1) - ds("infected", 1)) / 2
+            roi["incidence"] = (roi["confirmed"] - ds("confirmed", 7)) / roi["population"] * 100_000
             piv = roi.pivot(index="date", columns="entity", values=datacol)
             if worst_only is not None:
                 last_nonempty = piv[~piv.isnull().all(axis=1)].tail(1)
@@ -305,6 +306,7 @@ class mopodata:
 
         kreise_plot("Sachsen-Anhalt", "lsa")
         kreise_plot("Sachsen-Anhalt", "lsa", field="active")
+        kreise_plot("Sachsen-Anhalt", "lsa", field="incidence")
         kreise_plot("Sachsen-Anhalt", "lsa", field="new_confirmed", maxn=20, stack=True, order_total=-1)
         kreise_plot("Thüringen", "th")
         kreise_plot("Deutschland", "de", field="new_confirmed", maxn=20, stack=True, order_total=-1)

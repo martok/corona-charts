@@ -268,6 +268,7 @@ class UnifiedDataModel:
             "confirmed": "",
             "recovered": "",
             "deaths": "",
+            "population": "",
             "entity_id": ""
         })
         geo_g = df.groupby("entity_id", as_index=False).first()
