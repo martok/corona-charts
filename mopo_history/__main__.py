@@ -27,6 +27,7 @@ if args.new:
 
 # setup DB and processor
 database = db.DB(args.db)
+print(database.get_version_str())
 processor = HistoryProcessor(database)
 
 if args.cron:
