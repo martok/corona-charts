@@ -288,9 +288,13 @@ class UnifiedDataModel:
         joined = df.append(want_values).sort_values(by=unikeys, na_position="last")
         # only keep first instance (=data, if it exists)
         gapset = joined.drop_duplicates(subset=unikeys, keep="first", ignore_index=True)
-        # constant-expand missing values
-        # filled = gapset.fillna(method="ffill")
-        filled = gapset.interpolate(method="akima")
+        # interpolate gaps, constant-extend the rest
+        blockkeys = gapset["entity_id"].unique()
+        filled = gapset.copy()
+        for k in blockkeys:
+            block = filled["entity_id"] == k
+            # filled = gapset.fillna(method="ffill")
+            filled[block] = gapset[block].interpolate(method="akima").fillna(method="ffill")
         return filled
 
     # Shifting Methods
