@@ -1,4 +1,5 @@
 import os
+import subprocess
 from collections import Iterable
 from typing import Callable
 
@@ -38,6 +39,57 @@ def get_history_df() -> DataFrame:
     df: DataFrame = pd.read_csv(f, parse_dates=["date"], dtype={"levels": object})
     df["updated"] = pd.to_datetime(df["updated"], unit="ms")
     df["retrieved"] = pd.to_datetime(df["retrieved"], unit="ms")
+    return df
+
+
+def run_shell(cmd):
+    ret = subprocess.call(cmd, cwd=os.path.dirname(__file__), stderr=subprocess.STDOUT)
+    if ret:
+        raise OSError(f"Executing shell failed with error {ret}: {repr(cmd)}")
+
+
+def get_db_history_df() -> DataFrame:
+    import re
+    from .mopo_history.db import DB
+    """
+
+    """
+    f = cached_dl.update_cache("http://projects.martoks-place.de/extra/corona/mopo-history.sqlite3.latest.xz")
+    unpf = re.sub(r"\.xz$", "", f)
+    dbf = re.sub(r"\.latest\.xz$", "", f)
+    run_shell(f'xz -kdf "{f}"')
+    os.replace(unpf, dbf)
+    db = DB(dbf)
+    rs = db.query("""SELECT
+            c.place_id as "id",
+            p.parent_id as "parent",
+            p.label as "label",
+            pp.label as "label_parent",
+            p.label_en as "label_en",
+            pp.label_en as "label_parent_en",
+            p.lon,
+            p.lat,
+            p.population,
+            c.date,
+            c.updated,
+            c.retrieved,
+            c.confirmed,
+            c.recovered,
+            c.deaths,
+            s.source,
+            s.url as "source_url",
+            s.scraper
+        FROM covid c
+        LEFT JOIN place p ON c.place_id = p.id
+        LEFT JOIN place pp ON p.parent_id = pp.id
+        LEFT JOIN source s ON c.source_id = s.id
+        ORDER BY c.place_id, c.date""")
+    df: DataFrame = pd.DataFrame(data=rs, columns=[d[0] for d in rs.description])
+    df.fillna(np.nan, downcast=False, inplace=True)
+    df["date"] = pd.to_datetime(df["date"], format="%Y%m%d")
+    df["updated"] = pd.to_datetime(df["updated"], unit="ms")
+    df["retrieved"] = pd.to_datetime(df["retrieved"], unit="ms")
+
     return df
 
 
@@ -90,7 +142,19 @@ def project(df: pd.DataFrame, columns: dict):
 
 
 def hash_columns(df: pd.DataFrame, columns: Iterable):
-    return df[columns].apply(lambda x: hash(x.tobytes()), axis=1, raw=True)
+    import hashlib
+    import struct
+    def hr(x):
+        b = str(x).encode("utf-8")
+        i, = struct.unpack_from("i", hashlib.sha1(b).digest(), 0)
+        return i
+    return df[columns].apply(hr, axis=1, raw=True)
+
+
+def cartesian_product(df1: pd.DataFrame, df2: pd.DataFrame) -> pd.DataFrame:
+    mkey = '__prod_key'
+    k = {mkey: 0}
+    return pd.merge(df1.assign(**k), df2.assign(**k), on=mkey).drop(mkey, axis=1)
 
 
 def left_join_on(left: pd.DataFrame, right: pd.DataFrame, on):
@@ -194,7 +258,7 @@ class UnifiedDataModel:
 
     @staticmethod
     def from_mopo():
-        df = get_history_df()
+        df = get_db_history_df()
         df["entity_id"] = hash_columns(df, ["label", "label_parent"])
         ser = project(df, {
             "entity": "label",
@@ -210,6 +274,24 @@ class UnifiedDataModel:
         geo = project(geo_g, {"id": "entity_id", "lat": "", "lon": "",
                               "display": geo_g["label_parent"].fillna("") + "/" + geo_g["label"].fillna("")})
         return UnifiedDataModel(ser, geo)
+
+    def fix_date_gaps(self, df: pd.DataFrame) -> pd.DataFrame:
+        ekeys =  list(df.columns.intersection(["entity_id", "entity", "entity_parent"]).values)
+        unikeys = ekeys+["date"]
+        uniq_entities = df[ekeys].drop_duplicates()
+        date_min = df["date"].min()
+        date_max = df["date"].max()
+        uniq_dates = pd.DataFrame(data=pd.date_range(start=date_min, end=date_max, freq="D").values, columns=["date"])
+        # for each combination of entity,date(min..max)
+        want_values = cartesian_product(uniq_entities, uniq_dates)
+        # append to df(ignore_index), shuffle in values
+        joined = df.append(want_values).sort_values(by=unikeys, na_position="last")
+        # only keep first instance (=data, if it exists)
+        gapset = joined.drop_duplicates(subset=unikeys, keep="first", ignore_index=True)
+        # constant-expand missing values
+        # filled = gapset.fillna(method="ffill")
+        filled = gapset.interpolate(method="akima")
+        return filled
 
     # Shifting Methods
     # "How did this value look like, `by` days ago

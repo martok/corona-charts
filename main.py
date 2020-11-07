@@ -258,7 +258,7 @@ class mopodata:
                 df = cls.data.series_below(below)
             else:
                 return
-            df = df[~df["entity"].str.contains("weitere")].copy()
+            df = df[~df["entity"].str.contains("weitere")].pipe(cls.data.fix_date_gaps)
             extend_data(df)
             return df
 
@@ -531,7 +531,7 @@ tasks = [
     jhudata.plot_percountry,
     jhudata.plot_affected,
     jhudata.plot_trajectory,
-    text_figures,
+    # text_figures,
     publish,
 ]
 

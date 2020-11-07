@@ -7,9 +7,11 @@ class DB:
     def __init__(self, dbname: str) -> None:
         super().__init__()
         self.conn: sqlite3.Connection = sqlite3.connect(dbname, check_same_thread=False)
-        print(f"SQLite3: {sqlite3.sqlite_version} {sqlite3.version}")
         self.c: sqlite3.Cursor = self.conn.cursor()
         self.create_tables()
+
+    def get_version_str(self):
+        return f"sqlite3: {sqlite3.sqlite_version} module: {sqlite3.version}"
 
     def query(self, query: str, *parameters):
         return self.c.execute(query, tuple(parameters))
