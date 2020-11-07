@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Dict, Optional, Iterable
 
 import pandas as pd
@@ -11,6 +12,12 @@ class HistoryProcessor:
     def __init__(self, db: DB) -> None:
         super().__init__()
         self.db = db
+
+    def get_date_range(self):
+        first, last, count = self.db.query("""SELECT min(updated)/1000, max(updated)/1000, count(_rowid_) FROM covid""").fetchone()
+        first = datetime.fromtimestamp(first)
+        last = datetime.fromtimestamp(last)
+        return count, first, last
 
     def insert_df(self, table: str, df: DataFrame, values: Dict[str, str], *, duplicates: Optional[str] = None):
         stmt = "INSERT"

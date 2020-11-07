@@ -54,6 +54,8 @@ if args.cron:
         processor.ingest_csv_file(f)
         modified = True
 
+    count, first, last = processor.get_date_range()
+    print(f"Status: {count} values from {first} to {last}")
     if modified:
         print("Optimize and Vaccum...")
         database.query("pragma optimize")
