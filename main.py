@@ -51,6 +51,7 @@ class V:
 
 # plotting parameters
 alpha_rows = 4
+cfr_days = 14
 chart_show_most_affected = 10
 chart_show_countries = ["Germany", "Italy", "France", "Spain", "United Kingdom", "US", "Korea, South", "China"]
 chart_trajectory_countries = ["Germany", "Italy", "France", "Spain", "United Kingdom", "US", "Korea, South", "China",
@@ -236,8 +237,11 @@ def extend_data(df: pd.DataFrame):
     df["infected_before"] = UnifiedDataModel.date_shifted_by(df, "infected", days(alpha_rows))
     df["doubling"] = alpha_to_doubling(measure_alpha(df["infected_before"], df["infected"], alpha_rows))
     # case fatality rate: of removed cases, how many were fatal
-    df["CFR"] = df["deaths"] / df["removed"] * 100
-    df.loc[(df["deaths"] < chart_min_deaths) | ~np.isfinite(df["CFR"]) | (df["CFR"] > 100), "CFR"] = np.nan
+    # averaged over the last 7 days
+    removed_since = df["removed"] - UnifiedDataModel.date_shifted_by(df, "removed", days(cfr_days))
+    deaths_since = df["deaths"] - UnifiedDataModel.date_shifted_by(df, "deaths", days(cfr_days))
+    df["CFR"] = deaths_since / removed_since * 100
+    df.loc[(df["deaths"] < chart_min_deaths) | (deaths_since < chart_min_deaths) | ~np.isfinite(df["CFR"]) | (df["CFR"] > 100), "CFR"] = np.nan
     # Weekday
     df["dow"] = df["date"].dt.day_name()
 
@@ -390,8 +394,7 @@ class jhudata:
             plotpart("perday", f"Change per day, {alpha_rows}-day average:", "Change per day", ylim=(0.5, 2))
             plotpart("Rt", f"$R_t$ calculated from {alpha_rows}-day average", "$R_t$", ylim=(0.5, 6))
             plotpart("doubling", "Days to double", "$T_{double}$ / days", yscale="log")
-            # FIXME CFR funktioniert nicht, NaN für viele Ländern?????
-            plotpart("CFR", "Case fatality rate", "CFR / %", ylim=(0,))
+            plotpart("CFR", "Case fatality rate", "CFR / %", ylim=(0.1,100), yscale="log")
 
     @classmethod
     def fit_cfr(cls):
