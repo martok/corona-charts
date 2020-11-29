@@ -46,8 +46,16 @@ Concept borrows from [Aatish Bhatia & MinutePhysics](https://aatishb.com/covidtr
 
 ![Case Fatality Rate](countries_CFR.png)
 
+$$
+    CFR = \frac{ D_{t} - D_{t-span}  }{ R_{t} - R_{t-span} }, \text{ with } span=14
+$$
+
+Averaged over the past 14 days, how many of the "removed" cases did not survive?
 Case fatality rates depend extremely on the volume of testing (=number of confirmed light cases that will survive) and
-attribution of fatalities. The true global average is probably somewhere between the ones shown here.
+attribution of fatalities. There is also an observed spike in fatality near the tail end of local outbreaks
+that were successfully contained, when there were no new infections and after a while, only hospitalized severe cases
+with bad prognosis are remaining as active.
+Gaps in data indicate segments with low absolute numbers, where ratios would be extremely unreliable.
 
 ### Per-Country Data
 
