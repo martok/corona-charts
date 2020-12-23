@@ -309,7 +309,7 @@ class mopodata:
         entity_report("Jena", "jena")
 
         kreise_plot("Sachsen-Anhalt", "lsa")
-        kreise_plot("Sachsen-Anhalt", "lsa", field="active")
+        kreise_plot("Sachsen-Anhalt", "lsa", field="active", maxn=20)
         kreise_plot("Sachsen-Anhalt", "lsa", field="incidence")
         kreise_plot("Sachsen-Anhalt", "lsa", field="new_confirmed", maxn=20, stack=True, order_total=-1)
         kreise_plot("Thüringen", "th")
