@@ -306,7 +306,9 @@ class mopodata:
             pk.finalize(fig, f"local_{field}_{short}.png")
 
         entity_report("Sachsen-Anhalt", "lsa")
-        entity_report("Jena", "jena")
+        entity_report("Jena", "th-j")
+        entity_report("Magdeburg", "st-md")
+        entity_report("Harz (Kreis)", "st-hz")
 
         kreise_plot("Sachsen-Anhalt", "lsa")
         kreise_plot("Sachsen-Anhalt", "lsa", field="active", maxn=20)
