@@ -17,6 +17,7 @@ import pandas as pd
 import plotkit.plotkit as pk
 import matplotlib as mpl
 import matplotlib.dates as mdates
+import matplotlib.ticker as mticker
 from tqdm import tqdm
 
 from corona.datasource import UnifiedDataModel
@@ -303,6 +304,7 @@ class mopodata:
             set_dateaxis(axs)
             pk.set_grid(axs)
             axs.set_ylim(0,)
+            axs.yaxis.set_major_formatter(mticker.EngFormatter())
             pk.finalize(fig, f"local_{field}_{short}.png")
 
         entity_report("Sachsen-Anhalt", "lsa")
@@ -344,6 +346,7 @@ class jhudata:
 
             axs.set_ylim(chart_min_pop, roundnext(ge[cols].values))
             axs.set_title(country)
+            axs.yaxis.set_major_formatter(mticker.EngFormatter())
             set_dateaxis(axs)
             pk.set_grid(axs)
             pk.finalize(fig, f"overview_{country}.png")
@@ -373,7 +376,8 @@ class jhudata:
 
         with open("report.world.txt", "wt") as report:
             def plotpart(column: str, title: str, ylabel: str, *, yscale: Optional[str] = None,
-                         ylim: Union[None, Callable, Tuple] = None):
+                         ylim: Union[None, Callable, Tuple] = None,
+                         special=""):
                 rt = aff.pivot(index="date", columns="entity", values=column)
                 print(title + ":", file=report)
                 print(rt[~rt.isnull().all(axis=1)].tail(alpha_rows), file=report)
@@ -388,13 +392,16 @@ class jhudata:
                     if callable(ylim):
                         ylim = ylim(rt.values)
                     axs.set_ylim(*ylim)
+                if special == "rt":
+                    axs.set_yscale("function", functions=(lambda x: x**(1/6), lambda x: x ** 6))
+                    axs.yaxis.set_major_locator(mticker.FixedLocator([0.1, 0.25, 0.4, 0.6, 0.8, 1.0, 1.25, 1.5, 2, 3, 4, 6]))
                 set_dateaxis(axs)
                 pk.set_grid(axs)
                 pk.finalize(fig, f"countries_{column}.png")
 
             plotpart("active", "Active cases", "active", yscale="log", ylim=lambda v: (chart_min_pop, roundnext(v)))
             plotpart("perday", f"Change per day, {alpha_rows}-day average:", "Change per day", ylim=(0.5, 2))
-            plotpart("Rt", f"$R_t$ calculated from {alpha_rows}-day average", "$R_t$", ylim=(0.5, 6))
+            plotpart("Rt", f"$R_t$ calculated from {alpha_rows}-day average", "$R_t$", ylim=(0.5, 6), special="rt")
             plotpart("doubling", "Days to double", "$T_{double}$ / days", yscale="log")
             plotpart("CFR", "Case fatality rate", "CFR / %", ylim=(0.1,100), yscale="log")
 
@@ -478,6 +485,8 @@ class jhudata:
         axs.legend()
         axs.set_xlabel("Total confirmed cases")
         axs.set_ylabel("New confirmed cases / 7 day period")
+        axs.xaxis.set_major_formatter(mticker.EngFormatter())
+        axs.yaxis.set_major_formatter(mticker.EngFormatter())
         axs.annotate("Last data: " + str(traj["date"].max()), xy=(0.5, 0), xycoords="figure fraction",
                      ha="center", va="bottom")
         pk.finalize(fig, f"trajectory.png")
