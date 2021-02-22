@@ -289,7 +289,7 @@ class mopodata:
         def entity_report(land, short):
             """ show a few items for a single entity """
             reg = region_data(at=land)
-            reg = reg[["date", "dow", "confirmed", "recovered", "deaths", "active", "perday", "infected", "doubling"]]
+            reg = reg[["date", "dow", "confirmed", "recovered", "deaths", "active", "infected", "perday", "Rt", "doubling"]]
             print(reg, file=open(f"report.{short}.txt", "wt"))
 
         def kreise_plot(entity_parent, short, *, field="confirmed", maxn: Optional[int] = 10, stack=False,
