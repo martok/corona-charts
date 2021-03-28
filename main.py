@@ -516,13 +516,37 @@ def publish():
     if not c.publish_enabled:
         return
 
+    def _docall(cmd, status="raise", output="output"):
+        if output == "output":
+            stdout = None
+            stderr = subprocess.STDOUT
+        elif output == "null":
+            stdout = subprocess.DEVNULL
+            stderr = subprocess.DEVNULL
+        elif output == "return":
+            stdout = subprocess.PIPE
+            stderr = subprocess.STDOUT
+        else:
+            raise ValueError(f"Invalid output={output}")
+        process = subprocess.run(cmd, cwd=os.path.dirname(__file__), stdout=stdout, stderr=stderr, universal_newlines=True)
+        if process.returncode and status == "raise":
+            raise OSError(f"Executing step failed with error {process.returncode}: {repr(cmd)}")
+        if stdout == subprocess.PIPE:
+            if process.returncode:
+                return process.returncode
+            else:
+                return process.stdout
+        if status == "return":
+            return process.returncode
+
     def exitof(cmd) -> int:
-        return subprocess.call(cmd, cwd=os.path.dirname(__file__), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return _docall(cmd, status="return", output="null")
 
     def step(cmd):
-        ret = subprocess.call(cmd, cwd=os.path.dirname(__file__), stderr=subprocess.STDOUT)
-        if ret:
-            raise OSError(f"Executing step failed with error {ret}: {repr(cmd)}")
+        _docall(cmd, status="raise")
+
+    def capture(cmd):
+        return _docall(cmd, output="return")
 
     print("\nPublish to Github...")
     if exitof("git diff --cached --exit-code"):
@@ -533,10 +557,24 @@ def publish():
         print("Nothing to do")
         return
 
-    print("Committing....")
+    COMMIT_MESSAGE = "Automated Update"
+    COMMIT_UPDATE_THR = 2.5*24*3600
+
+    lastcommit = capture("git log --format=format:%at/%s HEAD~1..HEAD").split("/")
+    lasttime = datetime.fromtimestamp(int(lastcommit[0]))
+    amend_update = (lastcommit[1] == COMMIT_MESSAGE) and ((datetime.now() - lasttime).total_seconds() < COMMIT_UPDATE_THR)
+
+    camend = ""
+    cforce = ""
+    if amend_update:
+        print("Committing with amend...")
+        camend = "--amend"
+        cforce = "--force"
+    else:
+        print("Committing...")
     step("git add -u")
-    step('git commit -m "Automated Update" --')
-    step("git push origin")
+    step(f'git commit {camend} -m "{COMMIT_MESSAGE}" --')
+    step(f'git push {cforce} origin')
 
 
 tasks = [
