@@ -22,7 +22,7 @@ from tqdm import tqdm
 
 from corona.datasource import UnifiedDataModel
 
-pd.set_option("display.max_rows", 500)
+pd.set_option("display.max_rows", 1500)
 pd.set_option("display.max_columns", 500)
 pd.set_option("display.width", 200)
 
