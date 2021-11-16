@@ -39,12 +39,12 @@ if args.cron:
     rows = next(database.query("select count(*) from covid"), [0])
     if not rows or not rows[0]:
         print("Database is empty, running first import")
-        f = dl.update_cache("https://funkeinteraktiv.b-cdn.net/history.v4.csv")
+        f = dl.update_cache("https://interaktiv.morgenpost.de/data/corona/history.v4.csv")
         processor.ingest_csv_file(f)
         modified = True
 
     print("Checking for new data")
-    f = dl.update_cache("https://funkeinteraktiv.b-cdn.net/current.v4.csv", lifetime=1*3600)
+    f = dl.update_cache("https://interaktiv.morgenpost.de/data/corona/current.v4.csv", lifetime=1*3600)
     ts = int(dl.file_get_mtime(f))
     newfile = f"{f}.{ts}"
     # is this a file we haven't backed up yet?
