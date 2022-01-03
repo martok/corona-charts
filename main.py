@@ -60,6 +60,7 @@ chart_trajectory_countries = ["Germany", "Italy", "France", "Spain", "United Kin
 # chart_show_countries = None
 chart_min_pop = 100
 chart_min_deaths = 10
+chart_days_back_max = 500
 
 
 def measure_alpha(day1, day2, span):
@@ -120,6 +121,9 @@ def set_dateaxis(axs):
     axs.xaxis.set_major_locator(mdates.WeekdayLocator(mdates.MO))
     axs.xaxis.set_minor_locator(mdates.DayLocator())
     axs.xaxis.set_major_formatter(FirstWeekOfMonthDateFormatter('%b %d'))
+    xmin, xmax = axs.get_xlim()
+    if xmin < xmax - chart_days_back_max:
+        axs.set_xlim(xmax - chart_days_back_max, xmax)
 
 
 def plot_dataframe(axs, df: pd.DataFrame, x: Optional = None, y: Optional[Iterable] = None,
